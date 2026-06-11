@@ -4,6 +4,8 @@
 use async_trait::async_trait;
 use axum_session_auth::*;
 use axum_session_sqlx::SessionSqlitePool;
+use dioxus::fullstack::HttpError;
+use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::collections::HashSet;
@@ -14,7 +16,7 @@ pub(crate) type AuthLayer =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct User {
-    pub id: i32,
+    pub id: crate::UserId,
     pub anonymous: bool,
     pub username: String,
     pub permissions: HashSet<String>,
@@ -25,6 +27,22 @@ pub(crate) struct SqlPermissionTokens {
     pub token: String,
 }
 
+pub(crate) trait RequireUser {
+    fn require_user(&self) -> Result<&User, dioxus::server::ServerFnError>;
+}
+
+impl RequireUser for Session {
+    fn require_user(&self) -> Result<&User, dioxus::server::ServerFnError> {
+        self.current_user.as_ref().ok_or_else(|| {
+            HttpError::new(
+                StatusCode::UNAUTHORIZED,
+                "You are not authenticated".to_string(),
+            )
+            .into()
+        })
+    }
+}
+
 #[async_trait]
 impl Authentication<User, i64, SqlitePool> for User {
     async fn load_user(userid: i64, pool: Option<&SqlitePool>) -> Result<User, anyhow::Error> {
@@ -32,7 +50,7 @@ impl Authentication<User, i64, SqlitePool> for User {
 
         #[derive(sqlx::FromRow, Clone)]
         struct SqlUser {
-            id: i32,
+            id: crate::UserId,
             anonymous: bool,
             username: String,
         }

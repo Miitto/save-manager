@@ -103,6 +103,7 @@ dependencies = [
  "axum_session_sqlx",
  "dioxus",
  "http",
+ "log",
  "serde",
  "sqlx",
  "tokio",
@@ -5191,7 +5192,9 @@ name = "save-manager"
 version = "0.1.0"
 dependencies = [
  "api",
+ "chrono",
  "dioxus",
+ "log",
 ]
 
 [[package]]
