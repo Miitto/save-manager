@@ -23,7 +23,9 @@ pub(crate) async fn setup_db(db: &sqlx::Pool<sqlx::Sqlite>) -> anyhow::Result<()
         r#"CREATE TABLE IF NOT EXISTS saves (
                 "id" INTEGER PRIMARY KEY,
                 "name" VARCHAR(256) NOT NULL,
-                "game" INTEGER NOT NULL
+                "game" INTEGER NOT NULL,
+                "owner" INTEGER NOT NULL,
+                FOREIGN KEY(owner) REFERENCES users(id)
         )"#,
     )
     .await

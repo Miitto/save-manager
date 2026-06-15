@@ -90,11 +90,14 @@ pub fn launch_server(
     use axum_session::{SessionConfig, SessionLayer, SessionStore};
     use axum_session_auth::AuthConfig;
     use axum_session_sqlx::SessionSqlitePool;
+    use dioxus::logger::tracing::Level;
     use sqlx::{
         ConnectOptions, Executor,
         sqlite::{SqliteConnectOptions, SqlitePoolOptions},
     };
     use std::str::FromStr;
+
+    dioxus::logger::init(Level::TRACE).expect("Failed to initialize logger");
 
     dioxus::serve(|| async move {
         let connection_options = SqliteConnectOptions::from_str("sqlite::memory:")?
@@ -112,24 +115,33 @@ pub fn launch_server(
             return Err(e);
         }
 
-        // Insert in some test data for two users (one anonymous, one normal)
-        db.execute(r#"INSERT INTO users (id, anonymous, username) SELECT 1, true, 'Guest' ON CONFLICT(id) DO UPDATE SET anonymous = EXCLUDED.anonymous, username = EXCLUDED.username"#,)
-            .await?;
-        db.execute(r#"INSERT INTO users (id, anonymous, username) SELECT 2, false, 'Test' ON CONFLICT(id) DO UPDATE SET anonymous = EXCLUDED.anonymous, username = EXCLUDED.username"#,)
-            .await?;
+        let init_test_data = async || -> anyhow::Result<()> {
+            debug!("Inserting test data into database");
 
-        // Make sure our test user has the ability to view categories
-        db.execute(r#"INSERT INTO user_permissions (user_id, token) SELECT 2, 'Category::View'"#)
-            .await?;
+            db.execute(r#"INSERT INTO users (id, anonymous, username) SELECT 1, true, 'Guest' ON CONFLICT(id) DO UPDATE SET anonymous = EXCLUDED.anonymous, username = EXCLUDED.username"#,)
+            .await.context("Failed to create guest user")?;
+            db.execute(r#"INSERT INTO users (id, anonymous, username) SELECT 2, false, 'Test' ON CONFLICT(id) DO UPDATE SET anonymous = EXCLUDED.anonymous, username = EXCLUDED.username"#,)
+            .await.context("Failed to create test user")?;
 
-        db.execute(r#"INSERT INTO saves (id, name, game) SELECT 1, 'Test Save', 0 ON CONFLICT(id) DO UPDATE SET name = EXCLUDED.name, game = EXCLUDED.game"#,)
-            .await?;
+            // Make sure our test user has the ability to view categories
+            db.execute(
+                r#"INSERT INTO user_permissions (user_id, token) SELECT 2, 'Category::View'"#,
+            )
+            .await
+            .context("Failed to add user permissions")?;
 
-        db.execute(r#"INSERT INTO versions (id, save_id, version, label, timestamp, by) SELECT 1, 1, 1, 'Initial Version', strftime('%s','now'), 2 ON CONFLICT(id) DO UPDATE SET save_id = EXCLUDED.save_id, version = EXCLUDED.version, label = EXCLUDED.label, timestamp = EXCLUDED.timestamp, by = EXCLUDED.by"#,)
-            .await?;
+            db.execute(r#"INSERT INTO saves (id, name, game, owner) SELECT 1, 'Test Save', 0, 2 ON CONFLICT(id) DO UPDATE SET name = EXCLUDED.name, game = EXCLUDED.game"#,)
+            .await.context("Failed to create save")?;
 
-        db.execute(r#"INSERT INTO user_save_access (user_id, save_id, access) SELECT 2, 1, 0"#)
-            .await?;
+            db.execute(r#"INSERT INTO versions (id, save_id, version, label, timestamp, by) SELECT 1, 1, 1, 'Initial Version', strftime('%s','now'), 2 ON CONFLICT(id) DO UPDATE SET save_id = EXCLUDED.save_id, version = EXCLUDED.version, label = EXCLUDED.label, timestamp = EXCLUDED.timestamp, by = EXCLUDED.by"#,)
+            .await.context("Failed to create version")?;
+
+            debug!("Test data inserted successfully");
+
+            Ok(())
+        };
+
+        init_test_data().await?;
 
         // Create an axum router that dioxus will attach the app to
         Ok(dioxus::server::router(app)
