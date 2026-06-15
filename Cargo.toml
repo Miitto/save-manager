@@ -1,29 +1,30 @@
 [package]
-name = "save-manager"
-version = "0.1.0"
 authors = ["Miitto <wpbickerton@gmail.com>"]
 edition = "2024"
+name = "save-manager"
+version = "0.1.0"
 
 [workspace]
-resolver = "3"
 members = ["api"]
+resolver = "3"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
-dioxus = "0.7.1"
-serde = "1.0.228"
 anyhow = "1.0.102"
+dioxus = "0.7.1"
 log = "0.4.32"
+serde = "1.0.228"
 
 [dependencies]
-dioxus = { workspace = true, features = ["fullstack", "router"] }
 api = { path = "api" }
 chrono = "0.4.45"
+dioxus = { workspace = true, features = ["fullstack", "router"] }
 log.workspace = true
+serde.workspace = true
 
 [features]
 default = ["desktop"]
+desktop = ["api/desktop", "dioxus/desktop"]
+server = ["api/server", "dioxus/server"]
 web = ["dioxus/web"]
-desktop = ["dioxus/desktop", "api/desktop"]
-server = ["dioxus/server", "api/server"]

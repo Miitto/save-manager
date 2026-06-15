@@ -97,7 +97,7 @@ pub fn launch_server(
     };
     use std::str::FromStr;
 
-    dioxus::logger::init(Level::TRACE).expect("Failed to initialize logger");
+    dioxus::logger::init(Level::DEBUG).expect("Failed to initialize logger");
 
     dioxus::serve(|| async move {
         let connection_options = SqliteConnectOptions::from_str("sqlite::memory:")?

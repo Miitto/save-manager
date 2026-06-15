@@ -1,4 +1,8 @@
-use dioxus::prelude::*;
+use dioxus::{
+    fullstack::{Form, MultipartFormData},
+    html::g::by,
+    prelude::*,
+};
 
 #[cfg(feature = "server")]
 use crate::auth::RequireUser;
@@ -56,7 +60,10 @@ impl UserAccess {
     }
 
     pub fn can_view(&self) -> bool {
-        matches!(self, UserAccess::View | UserAccess::Edit | UserAccess::Owner)
+        matches!(
+            self,
+            UserAccess::View | UserAccess::Edit | UserAccess::Owner
+        )
     }
 }
 
@@ -118,9 +125,9 @@ pub async fn get_user_saves(user_id: crate::UserId) -> Result<Vec<Save>, ServerF
 
 #[cfg(feature = "server")]
 #[derive(sqlx::FromRow)]
-    struct Access {
-        pub access: UserAccess,
-    }
+struct Access {
+    pub access: UserAccess,
+}
 
 #[cfg(feature = "server")]
 async fn query_user_save_access(
@@ -128,8 +135,6 @@ async fn query_user_save_access(
     save_id: SaveId,
     db: &sqlx::SqlitePool,
 ) -> Result<Option<UserAccess>, ServerFnError> {
-    
-
     sqlx::query_as::<_, Access>(
         "SELECT
         CASE WHEN s.owner = $1 THEN 2 ELSE usa.access END as access
@@ -153,9 +158,7 @@ async fn query_user_save_access(
 }
 
 #[post("/api/save/{save_id}/access", auth: crate::auth::Session, db: crate::ServerDb)]
-pub async fn get_user_save_access(
-    save_id: SaveId,
-) -> Result<Option<UserAccess>, ServerFnError> {
+pub async fn get_user_save_access(save_id: SaveId) -> Result<Option<UserAccess>, ServerFnError> {
     let user = if let Ok(u) = auth.require_user() {
         u
     } else {
@@ -332,6 +335,83 @@ pub async fn get_save_name(save_id: i32) -> Result<String, ServerFnError> {
         })
 }
 
+#[post("/api/save/{save_id}/create", auth: crate::auth::Session, db: crate::ServerDb)]
+pub async fn create_version(
+    save_id: i32,
+    mut form: MultipartFormData,
+) -> Result<Version, ServerFnError> {
+    let user = auth.require_user()?;
+
+    let access = query_user_save_access(user.id, save_id, &db.0).await?;
+
+    if !access.can_edit() {
+        warn!(
+            "User {} attempted to create a version for save {} without permission",
+            user.id, save_id
+        );
+        return Err(HttpError::new(
+            StatusCode::UNAUTHORIZED,
+            "You do not have permission to create a version for this save".to_string(),
+        )
+        .into());
+    }
+
+    let mut label = None;
+    let mut file_bytes = None;
+
+    while let Ok(Some(field)) = form.next_field().await {
+        let name = field.name().unwrap_or_default();
+        let file_name = field.file_name().unwrap_or_default();
+        let content_type = field.content_type().unwrap_or_default();
+        match name {
+            "label" => label = Some(field.text().await.unwrap_or_default()),
+            "file" => file_bytes = Some(field.bytes().await.unwrap_or_default()),
+            _ => {}
+        }
+    }
+
+    if label.is_none()
+        || file_bytes.is_none()
+        || label.as_mut().is_some_and(|l| l.trim().is_empty())
+        || file_bytes.is_some_and(|b| b.is_empty())
+    {
+        return Err(HttpError::new(
+            StatusCode::BAD_REQUEST,
+            "Missing required fields".to_string(),
+        )
+        .into());
+    }
+
+    let version = sqlx::query_as::<_, DbVersion>(
+        "INSERT INTO versions (save_id, label, by, version) VALUES ($1, $2, $3, (SELECT MAX(version) FROM versions WHERE save_id = $1) + 1) RETURNING id, save_id, version, label, timestamp, by as user_id, (SELECT username FROM users WHERE id = by) as username;",
+    )
+    .bind(save_id)
+    .bind(label.unwrap())
+    .bind(user.id)
+    .fetch_one(&db.0)
+    .await
+    .map_err(|e| {
+        error!("Failed to create version: {e:?}");
+        ServerFnError::ServerError {
+            message: "Internal server error".to_string(),
+            code: 500,
+            details: None,
+        }
+    })?;
+
+    Ok(Version {
+        id: version.id,
+        save_id: version.save_id,
+        version: version.version,
+        label: version.label,
+        timestamp: std::time::UNIX_EPOCH + std::time::Duration::from_secs(version.timestamp as u64),
+        by: UserPreview {
+            id: version.user_id,
+            username: version.username,
+        },
+    })
+}
+
 #[delete("/api/save/{save_id}/{version_id}", auth: crate::auth::Session, db: crate::ServerDb)]
 pub async fn delete_version(save_id: i32, version_id: i32) -> Result<(), ServerFnError> {
     let user = auth.require_user()?;
@@ -349,13 +429,73 @@ pub async fn delete_version(save_id: i32, version_id: i32) -> Result<(), ServerF
         )
         .into());
     }
-    
+
     sqlx::query("DELETE FROM versions WHERE id = $1")
         .bind(version_id)
         .execute(&db.0)
         .await
         .map_err(|e| {
             error!("Failed to delete version: {e:?}");
+            ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            }
+        })?;
+
+    Ok(())
+}
+
+#[delete("/api/save/{save_id}", auth: crate::auth::Session, db: crate::ServerDb)]
+pub async fn delete_save(save_id: i32) -> Result<(), ServerFnError> {
+    let user = auth.require_user()?;
+
+    let access = query_user_save_access(user.id, save_id, &db.0).await?;
+
+    if !matches!(access, Some(UserAccess::Owner)) {
+        warn!(
+            "User {} attempted to delete save {} without permission",
+            user.id, save_id
+        );
+        return Err(HttpError::new(
+            StatusCode::UNAUTHORIZED,
+            "You do not have permission to delete this save".to_string(),
+        )
+        .into());
+    }
+
+    sqlx::query("DELETE FROM versions WHERE save_id = $1")
+        .bind(save_id)
+        .execute(&db.0)
+        .await
+        .map_err(|e| {
+            error!("Failed to delete versions for save: {e:?}");
+            ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            }
+        })?;
+
+    sqlx::query("DELETE FROM user_save_access WHERE save_id = $1")
+        .bind(save_id)
+        .execute(&db.0)
+        .await
+        .map_err(|e| {
+            error!("Failed to delete user save access for save: {e:?}");
+            ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            }
+        })?;
+
+    sqlx::query("DELETE FROM saves WHERE id = $1")
+        .bind(save_id)
+        .execute(&db.0)
+        .await
+        .map_err(|e| {
+            error!("Failed to delete save: {e:?}");
             ServerFnError::ServerError {
                 message: "Internal server error".to_string(),
                 code: 500,
