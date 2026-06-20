@@ -10,6 +10,9 @@ mod db;
 mod save;
 pub use save::*;
 
+mod version;
+pub use version::*;
+
 pub type UserId = i32;
 
 type Result<T> = core::result::Result<T, ServerFnError>;

@@ -1,4 +1,4 @@
-use dioxus::prelude::*;
+use dioxus::{html::filter, prelude::*};
 
 use crate::{Dialog, Route, USER};
 
@@ -68,14 +68,122 @@ pub fn Saves() -> Element {
 
 #[component]
 fn SaveList(saves: ReadSignal<Vec<api::Save>>) -> Element {
-    rsx! {
-        div { class: "grid grid-cols-[1fr_auto] gap-x-4 border-b border-neutral-500 mb-2",
-            div { class: "font-bold grid grid-cols-subgrid col-span-2 px-4 py-2 border-b border-neutral-500",
-                span { "Name" }
-                span { "Versions" }
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum SortBy {
+        NameAsc,
+        NameDesc,
+        GameAsc,
+        GameDesc,
+        LastUpdatedAsc,
+        LastUpdatedDesc,
+    }
+
+    let mut filter = use_signal(|| String::new());
+    let mut sorted_by = use_signal(|| SortBy::LastUpdatedAsc);
+
+    let mut filtered_saves = use_memo(move || {
+        let filter_str = filter().to_lowercase();
+        saves()
+            .clone()
+            .into_iter()
+            .filter(|s| {
+                s.name.to_lowercase().contains(&filter_str)
+                    || s.game.to_string().to_lowercase().contains(&filter_str)
+            })
+            .collect::<Vec<api::Save>>()
+    });
+
+    let sorted_saves = use_memo(move || {
+        let mut saves = filtered_saves();
+        match sorted_by() {
+            SortBy::NameAsc => saves.sort_by_key(|a| a.name.to_lowercase()),
+            SortBy::NameDesc => saves.sort_by_key(|b| std::cmp::Reverse(b.name.to_lowercase())),
+            SortBy::GameAsc => saves.sort_by_key(|a| a.game.to_string()),
+            SortBy::GameDesc => saves.sort_by_key(|b| std::cmp::Reverse(b.game.to_string())),
+            SortBy::LastUpdatedAsc => saves.sort_by_key(|a| a.most_recent_version),
+            SortBy::LastUpdatedDesc => {
+                saves.sort_by_key(|b| std::cmp::Reverse(b.most_recent_version))
             }
-            for save in saves() {
-                SaveRow { key: "{save.id}", save }
+        }
+        saves
+    });
+
+    let name_sort_icon = match sorted_by() {
+        SortBy::NameAsc => crate::icons::CHEVRON_DOWN,
+        SortBy::NameDesc => crate::icons::CHEVRON_UP,
+        _ => crate::icons::CHEVRON_UP_DOWN,
+    };
+
+    let button_sort_icon = match sorted_by() {
+        SortBy::GameAsc => crate::icons::CHEVRON_DOWN,
+        SortBy::GameDesc => crate::icons::CHEVRON_UP,
+        _ => crate::icons::CHEVRON_UP_DOWN,
+    };
+
+    let last_updated_sort_icon = match sorted_by() {
+        SortBy::LastUpdatedAsc => crate::icons::CHEVRON_DOWN,
+        SortBy::LastUpdatedDesc => crate::icons::CHEVRON_UP,
+        _ => crate::icons::CHEVRON_UP_DOWN,
+    };
+
+    rsx! {
+        div { class: "flex flex-col gap-y-1",
+            div { class: "flex flex-row items-center justify-end px-2",
+                input {
+                    class: "px-2 py-1 rounded grow max-w-100 bg-neutral-800 text-white border border-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-500",
+                    placeholder: "Filter saves...",
+                    value: "{filter()}",
+                    oninput: move |e| filter.set(e.value()),
+                }
+            }
+            div { class: "grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-b border-neutral-500 mb-2 items-center",
+                div { class: "font-bold grid grid-cols-subgrid col-span-full px-4 py-2 border-b border-neutral-500",
+                    div { class: "flex flex-row items-center gap-2",
+                        span { "Name" }
+                        button {
+                            class: "text-white w-8 h-8 flex justify-center items-center cursor-pointer hover:bg-neutral-600 rounded",
+                            onclick: move |_| {
+                                match sorted_by() {
+                                    SortBy::NameAsc => sorted_by.set(SortBy::NameDesc),
+                                    _ => sorted_by.set(SortBy::NameAsc),
+                                }
+                            },
+                            img { class: "invert", src: name_sort_icon }
+                        }
+                    }
+                    div { class: "flex flex-row items-center gap-2",
+                        span { "Game" }
+
+                        button {
+                            class: "text-white w-8 h-8 flex justify-center items-center cursor-pointer hover:bg-neutral-600 rounded",
+                            onclick: move |_| {
+                                match sorted_by() {
+                                    SortBy::GameAsc => sorted_by.set(SortBy::GameDesc),
+                                    _ => sorted_by.set(SortBy::GameAsc),
+                                }
+                            },
+                            img { class: "invert", src: button_sort_icon }
+                        }
+                    }
+                    div { class: "flex flex-row items-center gap-2",
+                        span { "Last Updated" }
+                        button {
+                            class: "text-white w-8 h-8 flex justify-center items-center cursor-pointer hover:bg-neutral-600 rounded",
+                            onclick: move |_| {
+                                match sorted_by() {
+                                    SortBy::LastUpdatedAsc => sorted_by.set(SortBy::LastUpdatedDesc),
+                                    _ => sorted_by.set(SortBy::LastUpdatedAsc),
+                                }
+                            },
+                            img { class: "invert", src: last_updated_sort_icon }
+                        }
+
+                    }
+                    span { "Versions" }
+                }
+                for save in sorted_saves() {
+                    SaveRow { key: "{save.id}", save }
+                }
             }
         }
     }
@@ -83,12 +191,27 @@ fn SaveList(saves: ReadSignal<Vec<api::Save>>) -> Element {
 
 #[component]
 fn SaveRow(save: api::Save) -> Element {
+    let time = save
+        .most_recent_version
+        .map(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .map(|d| {
+                    let datetime = chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                        .expect("Failed to convert date from unixepoch");
+                    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
+                })
+                .unwrap_or_else(|_| "Invalid Timestamp".to_string())
+        })
+        .unwrap_or_else(|| "Never".to_string());
+
     rsx! {
         Link {
             to: Route::SaveDetails { id: save.id },
-            class: "grid grid-cols-subgrid col-span-2 py-2 px-4 hover:bg-neutral-600 odd:bg-neutral-700",
+            class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-neutral-600 odd:bg-neutral-700",
 
             span { "{save.name}" }
+            span { "{save.game}" }
+            span { {time} }
             span { class: "text-center", "{save.version_count}" }
         }
     }

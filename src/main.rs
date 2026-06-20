@@ -11,6 +11,10 @@ pub mod icons {
     #[cfg(feature = "desktop")]
     pub const INSTALL: Asset = asset!("/assets/hard-drive-download.svg");
     pub const CIRCLE_PLUS: Asset = asset!("/assets/circle-plus.svg");
+
+    pub const CHEVRON_DOWN: Asset = asset!("/assets/chevron-down.svg");
+    pub const CHEVRON_UP: Asset = asset!("/assets/chevron-up.svg");
+    pub const CHEVRON_UP_DOWN: Asset = asset!("/assets/chevrons-up-down.svg");
 }
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
