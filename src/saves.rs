@@ -4,23 +4,6 @@ use crate::{Dialog, Route, USER};
 
 #[component]
 pub fn Saves() -> Element {
-    let mut login_user = use_action(move || async move {
-        let usr = api::login().await?;
-        *USER.write() = Some(usr);
-        Ok::<(), ServerFnError>(())
-    });
-    let mut logout_user = use_action(move || async move {
-        api::logout().await?;
-        *USER.write() = None;
-        Ok::<(), ServerFnError>(())
-    });
-
-    let username = use_memo(move || {
-        USER()
-            .map(|u| u.username.clone())
-            .unwrap_or_else(|| "Unknown".to_string())
-    });
-
     let saves = use_server_future(|| {
         _ = USER(); // Subscribe to the signal
         async move {
@@ -37,31 +20,16 @@ pub fn Saves() -> Element {
     })?()
     .unwrap_or_else(Vec::<api::Save>::new);
 
+    let navigator = use_navigator();
+
+    if USER().is_none() {
+        navigator.replace(Route::Login {});
+    }
+
     rsx! {
         document::Title { "Save Manager" }
 
-        div { class: "flex flex-col",
-            button {
-                class: "cursor-pointer active:underline",
-                onclick: move |_| async move {
-                    login_user.call().await;
-                },
-                "Login Test User"
-            }
-
-            button {
-                onclick: move |_| async move {
-                    logout_user.call().await;
-                },
-                "Logout"
-            }
-
-            pre { "Logged in: {login_user.value():?}" }
-            pre { "Username: {username}" }
-
-            SaveList { saves }
-
-        }
+        SaveList { saves }
 
     }
 }
@@ -78,10 +46,10 @@ fn SaveList(saves: ReadSignal<Vec<api::Save>>) -> Element {
         LastUpdatedDesc,
     }
 
-    let mut filter = use_signal(|| String::new());
+    let mut filter = use_signal(String::new);
     let mut sorted_by = use_signal(|| SortBy::LastUpdatedAsc);
 
-    let mut filtered_saves = use_memo(move || {
+    let filtered_saves = use_memo(move || {
         let filter_str = filter().to_lowercase();
         saves()
             .clone()
@@ -127,7 +95,7 @@ fn SaveList(saves: ReadSignal<Vec<api::Save>>) -> Element {
     };
 
     rsx! {
-        div { class: "flex flex-col gap-y-1",
+        div { class: "flex flex-col gap-y-1 mt-2",
             div { class: "flex flex-row items-center justify-end px-2",
                 input {
                     class: "px-2 py-1 rounded grow max-w-100 bg-neutral-800 text-white border border-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-500",
