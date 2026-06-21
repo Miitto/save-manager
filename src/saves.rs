@@ -30,7 +30,6 @@ pub fn Saves() -> Element {
         document::Title { "Save Manager" }
 
         SaveList { saves }
-
     }
 }
 
@@ -181,6 +180,36 @@ fn SaveRow(save: api::Save) -> Element {
             span { "{save.game}" }
             span { {time} }
             span { class: "text-center", "{save.version_count}" }
+        }
+    }
+}
+
+#[component]
+fn SaveAccessList(save_id: i32) -> Element {
+    let save_access_res =
+        use_server_future(move || async move { api::get_save_access(save_id).await })?;
+
+    let save_access = save_access_res().and_then(|res| res.ok());
+
+    let save_list = save_access.map(|a| {
+        rsx! {
+            for access in a.access_list {
+                SaveAccessRow { key: "{access.user.id}", access }
+            }
+        }
+    });
+
+    rsx! {
+        {save_list}
+    }
+}
+
+#[component]
+fn SaveAccessRow(access: api::NamedUserAccess) -> Element {
+    rsx! {
+        div { class: "grid grid-cols-[1fr_auto] gap-x-4 border-b border-neutral-500 px-4 py-2 items-center",
+            span { "{access.user.username}" }
+            span { class: "text-center", "{access.access}" }
         }
     }
 }

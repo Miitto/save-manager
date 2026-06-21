@@ -15,16 +15,11 @@ pub(crate) type AuthLayer =
     axum_session_auth::AuthSessionLayer<User, i64, SessionSqlitePool, SqlitePool>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(sqlx::FromRow))]
 pub(crate) struct User {
     pub id: crate::UserId,
-    pub anonymous: bool,
     pub username: String,
-    pub permissions: HashSet<String>,
-}
-
-#[derive(sqlx::FromRow, Clone)]
-pub(crate) struct SqlPermissionTokens {
-    pub token: String,
+    pub password: String,
 }
 
 pub(crate) trait RequireUser {
@@ -48,52 +43,24 @@ impl Authentication<User, i64, SqlitePool> for User {
     async fn load_user(userid: i64, pool: Option<&SqlitePool>) -> Result<User, anyhow::Error> {
         let db = pool.unwrap();
 
-        #[derive(sqlx::FromRow, Clone)]
-        struct SqlUser {
-            id: crate::UserId,
-            anonymous: bool,
-            username: String,
-        }
-
-        let sqluser = sqlx::query_as::<_, SqlUser>("SELECT * FROM users WHERE id = $1")
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
             .bind(userid)
             .fetch_one(db)
             .await
             .unwrap();
 
-        //lets just get all the tokens the user can use, we will only use the full permissions if modifying them.
-        let sql_user_perms = sqlx::query_as::<_, SqlPermissionTokens>(
-            "SELECT token FROM user_permissions WHERE user_id = $1;",
-        )
-        .bind(userid)
-        .fetch_all(db)
-        .await
-        .unwrap();
-
-        Ok(User {
-            id: sqluser.id,
-            anonymous: sqluser.anonymous,
-            username: sqluser.username,
-            permissions: sql_user_perms.into_iter().map(|x| x.token).collect(),
-        })
+        Ok(user)
     }
 
     fn is_authenticated(&self) -> bool {
-        !self.anonymous
+        true
     }
 
     fn is_active(&self) -> bool {
-        !self.anonymous
+        true
     }
 
     fn is_anonymous(&self) -> bool {
-        self.anonymous
-    }
-}
-
-#[async_trait]
-impl HasPermission<SqlitePool> for User {
-    async fn has(&self, perm: &str, _pool: &Option<&SqlitePool>) -> bool {
-        self.permissions.contains(perm)
+        false
     }
 }

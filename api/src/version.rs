@@ -8,6 +8,7 @@ use crate::auth::RequireUser;
 #[cfg(feature = "server")]
 use crate::query_user_save_access;
 
+#[cfg(feature = "server")]
 use crate::UserAccessExt;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

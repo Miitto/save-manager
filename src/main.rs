@@ -1,10 +1,4 @@
-use std::ptr::read_unaligned;
-
-use dioxus::{
-    html::input::{multiple, required},
-    prelude::*,
-    router::{RouterConfig, navigation},
-};
+use dioxus::{prelude::*, router::RouterConfig};
 
 pub mod icons {
     use dioxus::prelude::*;
@@ -18,6 +12,11 @@ pub mod icons {
     pub const CHEVRON_DOWN: Asset = asset!("/assets/chevron-down.svg");
     pub const CHEVRON_UP: Asset = asset!("/assets/chevron-up.svg");
     pub const CHEVRON_UP_DOWN: Asset = asset!("/assets/chevrons-up-down.svg");
+
+    pub const USER_KEY: Asset = asset!("/assets/user-key.svg");
+
+    pub const EYE: Asset = asset!("/assets/eye.svg");
+    pub const PENCIL: Asset = asset!("/assets/pencil.svg");
 }
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
@@ -165,65 +164,160 @@ fn AuthLayout() -> Element {
 
 #[component]
 fn Login() -> Element {
-    let mut login_user = use_action(move || async move {
-        let usr = api::login().await?;
-        *USER.write() = Some(usr);
-        Ok::<(), ServerFnError>(())
-    });
-    let mut logout_user = use_action(move || async move {
-        api::logout().await?;
-        *USER.write() = None;
-        Ok::<(), ServerFnError>(())
-    });
-
-    let username = use_memo(move || {
-        USER()
-            .map(|u| u.username.clone())
-            .unwrap_or_else(|| "Unknown".to_string())
-    });
+    let mut username = use_signal(String::new);
+    let mut password = use_signal(String::new);
 
     let navigator = use_navigator();
 
-    if USER().is_some() {
+    let mut login_user = use_action(move || async move {
+        let usr = match api::login(username(), password()).await {
+            Ok(usr) => usr,
+            Err(e) => match e {
+                ServerFnError::ServerError { message, .. } => {
+                    return Ok(Some(message));
+                }
+                _ => {
+                    return Ok(Some("An unknown error occurred".to_string()));
+                }
+            },
+        };
+        *USER.write() = Some(usr);
         navigator.replace(Route::Saves {});
-    }
+        Ok::<Option<String>, ServerFnError>(None)
+    });
+
+    let failure_message = login_user.value().and_then(|res| {
+        res.ok().and_then(|s| s()).map(|msg| {
+            rsx! {
+                p { class: "col-span-full text-red-500 mt-2", {msg} }
+            }
+        })
+    });
 
     rsx! {
         document::Title { "Login" }
 
-        div { class: "flex flex-col",
-            button {
-                class: "cursor-pointer active:underline",
-                onclick: move |_| async move {
-                    login_user.call().await;
-                },
-                "Login Test User"
+        form {
+            class: "grid grid-cols-[auto_1fr] gap-2 items-center p-4 container w-120 border border-neutral-500/50 rounded mt-8",
+            onsubmit: move |e| {
+                e.prevent_default();
+                login_user
+                    .call()
+            },
+            label { r#for: "username", "Username:" }
+            input {
+                id: "username",
+                class: INPUT_CLASS,
+                placeholder: "Username",
+                required: true,
+                oninput: move |e| username.set(e.value()),
             }
-
-            button {
-                onclick: move |_| async move {
-                    logout_user.call().await;
-                },
-                "Logout"
+            label { r#for: "password", "Password:" }
+            input {
+                id: "password",
+                class: INPUT_CLASS,
+                r#type: "password",
+                placeholder: "Password",
+                required: true,
+                oninput: move |e| password.set(e.value()),
             }
-
-            pre { "Logged in: {login_user.value():?}" }
-            pre { "Username: {username}" }
-
+            {failure_message}
+            div { class: "flex justify-end col-span-full mt-2",
+                input {
+                    r#type: "submit",
+                    class: "rounded bg-white text-black px-4 py-2 cursor-pointer",
+                    "Login"
+                }
+            }
         }
     }
 }
 
 #[component]
 fn Register() -> Element {
+    let mut username = use_signal(String::new);
+    let mut password = use_signal(String::new);
+    let mut confirm_password = use_signal(String::new);
+
+    let navigator = use_navigator();
+
+    let mut register = use_action(move || async move {
+        if password() != confirm_password() {
+            return Ok(Some("Passwords do not match".to_string()));
+        }
+        let usr = match api::register(username(), password()).await {
+            Ok(usr) => usr,
+            Err(e) => match e {
+                ServerFnError::ServerError { message, .. } => {
+                    return Ok(Some(message));
+                }
+                _ => {
+                    return Ok(Some("An unknown error occurred".to_string()));
+                }
+            },
+        };
+        *USER.write() = Some(usr);
+        navigator.replace(Route::Saves {});
+        Ok::<Option<String>, ServerFnError>(None)
+    });
+
+    let failure_message = register.value().and_then(|res| {
+        res.ok().and_then(|s| s()).map(|msg| {
+            rsx! {
+                p { class: "col-span-full text-red-500 mt-2", {msg} }
+            }
+        })
+    });
+
     rsx! {
         document::Title { "Register" }
 
-        div { class: "flex flex-col",
-            h1 { "Register" }
+        form {
+            class: "grid grid-cols-[auto_1fr] gap-2 items-center p-4 container w-120 border border-neutral-500/50 rounded mt-8",
+            onsubmit: move |e| {
+                e.prevent_default();
+                register.call();
+            },
+            label { r#for: "username", "Username:" }
+            input {
+                id: "username",
+                class: INPUT_CLASS,
+                placeholder: "Username",
+                required: true,
+                oninput: move |e| username.set(e.value()),
+            }
+            label { r#for: "password", "Password:" }
+            input {
+                id: "password",
+                class: INPUT_CLASS,
+                r#type: "password",
+                placeholder: "Password",
+                required: true,
+                oninput: move |e| password.set(e.value()),
+            }
+            label { r#for: "confirm_password", "Confirm Password:" }
+            input {
+                id: "confirm_password",
+                class: INPUT_CLASS,
+                r#type: "password",
+                placeholder: "Confirm Password",
+                required: true,
+                oninput: move |e| confirm_password.set(e.value()),
+            }
+            {failure_message}
+            div { class: "flex justify-end col-span-full mt-2",
+                input {
+                    r#type: "submit",
+                    class: "rounded bg-white text-black px-4 py-2 cursor-pointer",
+                    "Submit"
+                }
+            }
         }
     }
 }
+
+const DIALOG_CLASS: &str =
+    "bg-neutral-700 p-6 rounded shadow-lg w-96 border border-neutral-500 text-white";
 
 #[component]
 pub fn Dialog(
@@ -237,9 +331,7 @@ pub fn Dialog(
         None => "bg-black/50".to_string(),
     };
 
-    let class = class.unwrap_or_else(|| {
-        "bg-neutral-700 p-6 rounded shadow-lg w-96 border border-neutral-500 text-white".to_string()
-    });
+    let class = class.unwrap_or_else(|| DIALOG_CLASS.to_string());
 
     rsx! {
         dialog {
@@ -283,32 +375,4 @@ pub fn ConfirmDialog(
     }
 }
 
-#[component]
-pub fn Input(
-    value: Option<String>,
-    oninput: Option<EventHandler<String>>,
-    placeholder: Option<String>,
-    name: Option<String>,
-    mul: Option<bool>,
-    r#type: Option<String>,
-    req: Option<bool>,
-) -> Element {
-    let placeholder = placeholder.unwrap_or_else(|| "".to_string());
-
-    rsx! {
-        input {
-            class: "bg-neutral-700 text-white border border-neutral-500 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500",
-            name,
-            value,
-            placeholder,
-            multiple: mul,
-            r#type,
-            required: req,
-            oninput: move |e| {
-                if let Some(oninput) = &oninput {
-                    oninput.call(e.value());
-                }
-            },
-        }
-    }
-}
+const INPUT_CLASS: &str = "bg-neutral-700 text-white border border-neutral-500 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500";

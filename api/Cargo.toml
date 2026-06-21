@@ -27,6 +27,7 @@ http = { version = "1.4.2", optional = true }
 tower = { version = "0.5.3", optional = true }
 tower-http = { version = "0.6.11", optional = true, features = ["auth"] }
 async-trait = { version = "0.1.89", optional = true }
+bcrypt = "0.19.2"
 
 [features]
 desktop = []

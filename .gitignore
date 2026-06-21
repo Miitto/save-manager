@@ -7,3 +7,5 @@
 **/*.rs.bk
 
 assets/tailwind.css
+
+*.db

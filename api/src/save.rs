@@ -170,7 +170,70 @@ pub(crate) async fn query_user_save_access(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "server", derive(sqlx::FromRow))]
+pub struct NamedUserAccess {
+    #[cfg_attr(feature = "server", sqlx(flatten))]
+    pub user: UserPreview,
+    pub access: UserAccess,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SaveAccess {
+    pub owner: UserPreview,
+    pub access_list: Vec<NamedUserAccess>,
+}
+
 #[post("/api/save/{save_id}/access", auth: crate::auth::Session, db: crate::ServerDb)]
+pub async fn get_save_access(save_id: SaveId) -> Result<SaveAccess, ServerFnError> {
+    let user = auth.require_user()?;
+
+    if query_user_save_access(user.id, save_id, &db.0)
+        .await?
+        .is_none()
+    {
+        warn!("User {} attempeted to access save {}", user.id, save_id);
+        return Err(HttpError::new(
+            StatusCode::UNAUTHORIZED,
+            "You do not have permission to view this save".to_string(),
+        )
+        .into());
+    }
+
+    let owner = sqlx::query_as::<_, UserPreview>(
+        "SELECT id, username FROM users WHERE id = (SELECT owner FROM saves WHERE id = $1)",
+    )
+    .bind(save_id)
+    .fetch_one(&db.0)
+    .await
+    .map_err(|e| {
+        error!("Database error while fetching save owner: {}", e);
+        ServerFnError::ServerError {
+            message: "Internal server error".to_string(),
+            code: 500,
+            details: None,
+        }
+    })?;
+
+    let access_list = sqlx::query_as::<_, NamedUserAccess>(
+        "SELECT u.id, u.username, usa.access FROM user_save_access usa LEFT JOIN users u ON usa.user_id = u.id WHERE usa.save_id = $1 GROUP BY u.username",
+    )
+    .bind(save_id)
+    .fetch_all(&db.0)
+    .await
+    .map_err(|e| {
+        error!("Database error while fetching save access: {}", e);
+        ServerFnError::ServerError {
+            message: "Internal server error".to_string(),
+            code: 500,
+            details: None,
+        }
+    })?;
+
+    Ok(SaveAccess { owner, access_list })
+}
+
+#[post("/api/save/{save_id}/access/user", auth: crate::auth::Session, db: crate::ServerDb)]
 pub async fn get_user_save_access(save_id: SaveId) -> Result<Option<UserAccess>, ServerFnError> {
     let user = if let Ok(u) = auth.require_user() {
         u
@@ -311,22 +374,254 @@ pub async fn delete_save(save_id: i32) -> Result<(), ServerFnError> {
     Ok(())
 }
 
-impl std::fmt::Display for Game {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use Game as G;
+#[cfg(feature = "server")]
+#[derive(sqlx::FromRow)]
+struct OwnedSave {
+    pub id: SaveId,
+    pub owner: crate::UserId,
+}
 
-        macro_rules! g {
-            ($self:ident, $(($variant:ident, $name:literal)$(,)?)*) => {
+#[post("/api/save/{save_id}/access/add", auth: crate::auth::Session, db: crate::ServerDb)]
+pub async fn add_user_save_access(save_id: i32, username: String) -> Result<(), ServerFnError> {
+    let user = auth.require_user()?;
+
+    let save = sqlx::query_as::<_, OwnedSave>("SELECT id, owner FROM saves WHERE id = $1")
+        .bind(save_id)
+        .fetch_one(&db.0)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch save: {e:?}");
+            ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            }
+        })?;
+
+    if user.id != save.owner {
+        warn!(
+            "User {} attempted to add access for user {} to save {} without permission",
+            user.id, username, save_id
+        );
+        return Err(HttpError::new(
+            StatusCode::UNAUTHORIZED,
+            "You do not have permission to modify this save".to_string(),
+        )
+        .into());
+    }
+
+    let new_user =
+        sqlx::query_as::<_, UserPreview>("SELECT id, username FROM users WHERE username = $1")
+            .bind(username)
+            .fetch_one(&db.0)
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch user: {e:?}");
+                ServerFnError::ServerError {
+                    message: "User does not exist.".to_string(),
+                    code: 500,
+                    details: None,
+                }
+            })?;
+
+    if new_user.id == save.owner {
+        return Err(HttpError::new(
+            StatusCode::BAD_REQUEST,
+            "Cannot modify access for the owner of the save".to_string(),
+        )
+        .into());
+    }
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO user_save_access (user_id, save_id, access) VALUES ($1, $2, $3)",
+    )
+    .bind(new_user.id)
+    .bind(save_id)
+    .bind(UserAccess::View as i32)
+    .execute(&db.0)
+    .await
+    .map_err(|e| {
+        error!("Failed to add user save access: {e:?}");
+        ServerFnError::ServerError {
+            message: "Internal server error".to_string(),
+            code: 500,
+            details: None,
+        }
+    })?;
+
+    Ok(())
+}
+
+#[post("/api/save/{save_id}/access/remove", auth: crate::auth::Session, db: crate::ServerDb)]
+pub async fn remove_user_save_access(save_id: i32, username: String) -> Result<(), ServerFnError> {
+    let user = auth.require_user()?;
+
+    let save = sqlx::query_as::<_, OwnedSave>("SELECT id, owner FROM saves WHERE id = $1 LIMIT 1")
+        .bind(save_id)
+        .fetch_one(&db.0)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch save: {e:?}");
+            ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            }
+        })?;
+
+    if user.id != save.owner {
+        warn!(
+            "User {} attempted to remove access for user {} from save {} without permission",
+            user.id, username, save_id
+        );
+        return Err(HttpError::new(
+            StatusCode::UNAUTHORIZED,
+            "You do not have permission to modify this save".to_string(),
+        )
+        .into());
+    }
+
+    let target_user =
+        sqlx::query_as::<_, UserPreview>("SELECT id, username FROM users WHERE username = $1")
+            .bind(username)
+            .fetch_one(&db.0)
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch user: {e:?}");
+                ServerFnError::ServerError {
+                    message: "User does not exist.".to_string(),
+                    code: 500,
+                    details: None,
+                }
+            })?;
+
+    if target_user.id == save.owner {
+        return Err(HttpError::new(
+            StatusCode::BAD_REQUEST,
+            "Cannot modify access for the owner of the save".to_string(),
+        )
+        .into());
+    }
+
+    sqlx::query("DELETE FROM user_save_access WHERE user_id = $1 AND save_id = $2")
+        .bind(target_user.id)
+        .bind(save_id)
+        .execute(&db.0)
+        .await
+        .map_err(|e| {
+            error!("Failed to remove user save access: {e:?}");
+            ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            }
+        })?;
+
+    Ok(())
+}
+
+#[post("/api/save/{save_id}/access/update", auth: crate::auth::Session, db: crate::ServerDb)]
+pub async fn update_user_save_access(
+    save_id: i32,
+    username: String,
+    access: UserAccess,
+) -> Result<(), ServerFnError> {
+    let user = auth.require_user()?;
+
+    let save = sqlx::query_as::<_, OwnedSave>("SELECT id, owner FROM saves WHERE id = $1 LIMIT 1")
+        .bind(save_id)
+        .fetch_one(&db.0)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch save: {e:?}");
+            ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            }
+        })?;
+
+    if user.id != save.owner {
+        warn!(
+            "User {} attempted to update access for user {} on save {} without permission",
+            user.id, username, save_id
+        );
+        return Err(HttpError::new(
+            StatusCode::UNAUTHORIZED,
+            "You do not have permission to modify this save".to_string(),
+        )
+        .into());
+    }
+
+    let target_user =
+        sqlx::query_as::<_, UserPreview>("SELECT id, username FROM users WHERE username = $1")
+            .bind(username)
+            .fetch_one(&db.0)
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch user: {e:?}");
+                ServerFnError::ServerError {
+                    message: "User does not exist.".to_string(),
+                    code: 500,
+                    details: None,
+                }
+            })?;
+
+    if target_user.id == save.owner {
+        return Err(HttpError::new(
+            StatusCode::BAD_REQUEST,
+            "Cannot modify access for the owner of the save".to_string(),
+        )
+        .into());
+    }
+
+    sqlx::query("UPDATE user_save_access SET access = $1 WHERE user_id = $2 AND save_id = $3")
+        .bind(access as i32)
+        .bind(target_user.id)
+        .bind(save_id)
+        .execute(&db.0)
+        .await
+        .map_err(|e| {
+            error!("Failed to update user save access: {e:?}");
+            ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            }
+        })?;
+
+    Ok(())
+}
+
+macro_rules! display_match {
+            ($formatter:ident, $enum:ty, $self:ident, $(($variant:ident, $name:literal)$(,)?)*) => {
                 match $self {
-                    $(G::$variant => write!(f, $name),)*
+                    $(<$enum>::$variant => write!($formatter, $name),)*
                 }
             };
         }
 
-        g!(
+impl std::fmt::Display for Game {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        display_match!(
+            f,
+            Game,
             self,
             (IntoTheRadius2, "Into the Radius 2"),
             (Satisfactory, "Satisfactory"),
+        )
+    }
+}
+
+impl std::fmt::Display for UserAccess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        display_match!(
+            f,
+            UserAccess,
+            self,
+            (View, "View"),
+            (Edit, "Edit"),
+            (Owner, "Owner"),
         )
     }
 }

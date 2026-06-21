@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use api::UserAccessExt;
+use api::{SaveAccess, UserAccessExt, UserSaveAccess};
 
 use crate::{ConfirmDialog, Dialog, USER};
 
@@ -39,6 +39,32 @@ pub fn SaveDetails(id: i32) -> Element {
     };
     let mut new_version_open = use_signal(|| false);
     let mut delete_save_open = use_signal(|| false);
+    let mut save_access_open = use_signal(|| false);
+
+    let mut save_access_res =
+        use_server_future(move || async move { api::get_save_access(id).await })?;
+
+    let mut add_new_access = use_action(move |username: String| async move {
+        if let Err(e) = api::add_user_save_access(id, username).await {
+            error!("Failed to add access: {e}");
+            return match e {
+                ServerFnError::ServerError { message, .. } => Ok(Some(message)),
+                _ => Ok(Some("Failed to add access".to_string())),
+            };
+        }
+        save_access_res.restart();
+        Ok(None) as Result<Option<String>, ServerFnError>
+    });
+
+    let add_new_access_error = add_new_access
+        .value()
+        .and_then(|e| e.ok().map(|e| e()))
+        .flatten()
+        .map(|e| {
+            rsx! {
+                p { class: "text-red-500", {e} }
+            }
+        });
 
     let nav = use_navigator();
 
@@ -55,11 +81,21 @@ pub fn SaveDetails(id: i32) -> Element {
                             " version(s)"
                         }
                         button {
-                            class: "flex items-center justify-center w-8 h-8 rounded bg-red-300 hover:bg-red-400 cursor-pointer",
+                            class: "flex items-center justify-center w-8 h-8 rounded bg-blue-300 hover:bg-blue-400 cursor-pointer",
                             onclick: move |_| {
-                                delete_save_open.set(true);
+                                save_access_open.set(true);
                             },
-                            img { src: crate::icons::TRASH }
+                            img { src: crate::icons::USER_KEY }
+                        }
+
+                        if USER().is_some_and(|u| u.id == save.owner) {
+                            button {
+                                class: "flex items-center justify-center w-8 h-8 rounded bg-red-300 hover:bg-red-400 cursor-pointer",
+                                onclick: move |_| {
+                                    delete_save_open.set(true);
+                                },
+                                img { src: crate::icons::TRASH }
+                            }
                         }
                     }
                 }
@@ -68,10 +104,12 @@ pub fn SaveDetails(id: i32) -> Element {
 
                 {save_versions}
 
-                button {
-                    class: "fixed bottom-4 right-4 w-12 h-12 rounded-full bg-emerald-400 hover:bg-green-300 flex items-center justify-center cursor-pointer",
-                    onclick: move |_| new_version_open.set(true),
-                    img { src: crate::icons::CIRCLE_PLUS }
+                if modify {
+                    button {
+                        class: "fixed bottom-4 right-4 w-12 h-12 rounded-full bg-emerald-400 hover:bg-green-300 flex items-center justify-center cursor-pointer",
+                        onclick: move |_| new_version_open.set(true),
+                        img { src: crate::icons::CIRCLE_PLUS }
+                    }
                 }
 
                 Dialog { open: new_version_open,
@@ -91,14 +129,20 @@ pub fn SaveDetails(id: i32) -> Element {
                             new_version_open.set(false);
                         },
 
-                        crate::Input { placeholder: "Label", name: "label", req: true }
+                        input {
+                            class: crate::INPUT_CLASS,
+                            placeholder: "Label",
+                            name: "label",
+                            required: true,
+                        }
 
-                        crate::Input {
+                        input {
+                            class: crate::INPUT_CLASS,
                             placeholder: "File",
                             name: "file",
-                            mul: false,
+                            multiple: false,
                             r#type: "file",
-                            req: true,
+                            required: true,
                         }
 
                         div { class: "flex flex-row justify-between",
@@ -116,6 +160,54 @@ pub fn SaveDetails(id: i32) -> Element {
                                 "Create"
                             }
                         }
+                    }
+                }
+
+                Dialog {
+                    open: save_access_open,
+                    class: "{crate::DIALOG_CLASS} min-w-max",
+                    div { class: "flex flex-row justify-between gap-8 items-top min-w-max",
+                        h2 { class: "text-2xl font-bold", "Manage Access" }
+                        if USER().is_some_and(|u| u.id == save.owner) {
+                            div { class: "flex flex-col gap-2",
+                                form {
+                                    class: "flex flex-row gap-2 items-center",
+                                    onsubmit: move |e: FormEvent| async move {
+                                        e.prevent_default();
+
+                                        debug!("Adding access to save {:?}", e.data());
+                                        let username = match &e.data().values()[0].1 {
+                                            FormValue::Text(s) => s.clone(),
+                                            _ => unreachable!("Expected text input for username"),
+                                        };
+
+                                        add_new_access.call(username).await
+                                    },
+                                    input {
+                                        class: crate::INPUT_CLASS,
+                                        placeholder: "Username",
+                                        name: "username",
+                                        required: true,
+                                    }
+
+                                    button { class: "p-1 bg-emerald-300 rounded cursor-pointer hover:bg-green-200",
+                                        img {
+                                            class: "w-6 h-6 ",
+                                            src: crate::icons::CIRCLE_PLUS,
+                                        }
+                                    }
+                                }
+                                {add_new_access_error}
+                            }
+                        }
+                    }
+
+                    hr { class: "my-2" }
+
+                    SaveAccessList {
+                        save_access_res,
+                        save_id: id,
+                        is_owner: USER().is_some_and(|u| u.id == save.owner),
                     }
                 }
 
@@ -244,6 +336,122 @@ fn VersionRow(version: api::Version, modify: ReadSignal<bool>) -> Element {
                     delete_version.call();
                 },
                 open: delete_open,
+            }
+        }
+    }
+}
+
+type SaveListProvider = Resource<Result<api::SaveAccess, ServerFnError>>;
+
+#[component]
+fn SaveAccessList(save_access_res: SaveListProvider, save_id: i32, is_owner: bool) -> Element {
+    let save_access = save_access_res().and_then(|res| res.ok());
+
+    let owner = save_access.as_ref().map(|a| {
+        rsx! {
+            div { class: "grid grid-cols-subgrid col-span-full p-2 items-center",
+                span { "{a.owner.username}" }
+                span { class: "font-bold text-center", "Owner" }
+            }
+            hr { class: "col-span-full" }
+        }
+    });
+
+    let save_list = save_access.map(|a| {
+        rsx! {
+            for access in a.access_list {
+                SaveAccessRow {
+                    key: "{access.user.id}",
+                    access,
+                    save_id,
+                    save_access_res,
+                    is_owner,
+                }
+            }
+        }
+    });
+
+    rsx! {
+        div { class: "grid grid-cols-[1fr_auto_auto] gap-x-4 border-b border-neutral-500 mb-2 items-center max-h-[80dvh] overflow-y-auto",
+            {owner}
+            {save_list}
+        }
+    }
+}
+
+#[component]
+fn SaveAccessRow(
+    access: api::NamedUserAccess,
+    save_id: i32,
+    save_access_res: SaveListProvider,
+    is_owner: bool,
+) -> Element {
+    let username = access.user.username.clone();
+    let mut remove_access = use_action(move || {
+        let username = username.clone();
+        async move {
+            if let Err(e) = api::remove_user_save_access(save_id, username).await {
+                error!("Failed to remove access: {e}");
+                return match e {
+                    ServerFnError::ServerError { message, .. } => Ok(Some(message)),
+                    _ => Ok(Some("Failed to remove access".to_string())),
+                };
+            }
+            save_access_res.restart();
+            Ok(None) as Result<Option<String>, ServerFnError>
+        }
+    });
+
+    rsx! {
+        div {
+            class: "grid grid-cols-subgrid col-span-full p-2 items-center cursor-pointer hover:bg-neutral-600 odd:bg-neutral-800",
+            onclick: move |_| {
+                let username = access.user.username.clone();
+                async move {
+                    if let Err(e) = api::update_user_save_access(
+                            save_id,
+                            username,
+                            if matches!(access.access, api::UserAccess::View) {
+                                api::UserAccess::Edit
+                            } else {
+                                api::UserAccess::View
+                            },
+                        )
+                        .await
+                    {
+                        error!("Failed to update access: {e}");
+                    }
+                    save_access_res.restart();
+                }
+            },
+            span { "{access.user.username}" }
+            span { class: "flex justify-center items-center",
+                if is_owner {
+                    button {
+                        title: "Toggle Access",
+                        class: "bg-blue-300 hover:bg-blue-400 cursor-pointer rounded w-8 h-8 flex justify-center items-center",
+                        img {
+                            src: match access.access {
+                                api::UserAccess::View => crate::icons::EYE,
+                                api::UserAccess::Edit => crate::icons::PENCIL,
+                                _ => unreachable!("Invalid access level for user: {:?}", access.access),
+                            },
+                        }
+                    }
+                } else {
+                    span { class: "font-bold text-center", "{access.access}" }
+                }
+            }
+            if is_owner {
+                button {
+                    title: "Revoke Access",
+                    class: "bg-red-300 hover:bg-red-400 cursor-pointer rounded w-8 h-8 flex justify-center items-center",
+                    onclick: move |e| {
+                        e.stop_propagation();
+                        remove_access.call();
+                    },
+                    img { src: crate::icons::TRASH }
+                }
             }
         }
     }
