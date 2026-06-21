@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use api::{SaveAccess, UserAccessExt, UserSaveAccess};
+use api::UserAccessExt;
 
 use crate::{ConfirmDialog, Dialog, USER};
 

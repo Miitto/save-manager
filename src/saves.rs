@@ -1,6 +1,6 @@
-use dioxus::{html::filter, prelude::*};
+use dioxus::prelude::*;
 
-use crate::{Dialog, Route, USER};
+use crate::{Route, USER};
 
 #[component]
 pub fn Saves() -> Element {
