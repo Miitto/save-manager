@@ -15,6 +15,16 @@ anyhow = "1.0.102"
 dioxus = "0.7.1"
 log = "0.4.32"
 serde = "1.0.228"
+zip = { version = "8.6.0", default-features = false, features = [
+    # "aes-crypto",
+    # "bzip2",
+    # "xz",
+    "deflate",
+    "deflate64",
+    "lzma",
+    "time",
+    "zstd",
+] }
 
 [dependencies]
 api = { path = "api" }

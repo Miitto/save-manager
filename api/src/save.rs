@@ -11,6 +11,12 @@ pub enum Game {
     Satisfactory,
 }
 
+impl Game {
+    pub fn iter() -> impl Iterator<Item = Game> {
+        [Game::IntoTheRadius2, Game::Satisfactory].into_iter()
+    }
+}
+
 pub type SaveId = i32;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -314,6 +320,53 @@ pub async fn get_save_name(save_id: i32) -> Result<String, ServerFnError> {
         })
 }
 
+#[post("/api/save/create", auth: crate::auth::Session, db: crate::ServerDb)]
+pub async fn create_save(name: String, game: Game) -> Result<Save, ServerFnError> {
+    let user = auth.require_user()?;
+
+    std::fs::create_dir_all(format!("./saves/{}/{:?}/{}", user.username, game, name)).map_err(
+        |e| {
+            error!("Failed to create save directory: {e:?}");
+            ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            }
+        },
+    )?;
+
+    #[derive(sqlx::FromRow)]
+    struct SaveIdRow {
+        id: SaveId,
+    }
+
+    let SaveIdRow { id } = sqlx::query_as::<_, SaveIdRow>(
+        "INSERT INTO saves (name, game, owner) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(&name)
+    .bind(game)
+    .bind(user.id)
+    .fetch_one(&db.0)
+    .await
+    .map_err(|e| {
+        error!("Failed to create save: {e:?}");
+        ServerFnError::ServerError {
+            message: "Internal server error".to_string(),
+            code: 500,
+            details: None,
+        }
+    })?;
+
+    Ok(Save {
+        id,
+        name,
+        game,
+        owner: user.id,
+        version_count: 0,
+        most_recent_version: None,
+    })
+}
+
 #[delete("/api/save/{save_id}", auth: crate::auth::Session, db: crate::ServerDb)]
 pub async fn delete_save(save_id: i32) -> Result<(), ServerFnError> {
     let user = auth.require_user()?;
@@ -331,6 +384,39 @@ pub async fn delete_save(save_id: i32) -> Result<(), ServerFnError> {
         )
         .into());
     }
+
+    #[derive(sqlx::FromRow)]
+    struct SaveIdentRow {
+        name: String,
+        game: crate::Game,
+    }
+
+    let SaveIdentRow { name, game } =
+        sqlx::query_as::<_, SaveIdentRow>("SELECT name, game FROM saves WHERE id = $1")
+            .bind(save_id)
+            .fetch_one(&db.0)
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch save game: {e:?}");
+                ServerFnError::ServerError {
+                    message: "Internal server error".to_string(),
+                    code: 500,
+                    details: None,
+                }
+            })?;
+
+    let folder_path = format!("./saves/{}/{:?}/{}", user.username, game, name);
+
+    debug!("Deleting save folder at: {}", folder_path);
+
+    std::fs::remove_dir_all(folder_path).map_err(|e| {
+        error!("Failed to delete save folder: {e:?}");
+        ServerFnError::ServerError {
+            message: "Internal server error".to_string(),
+            code: 500,
+            details: None,
+        }
+    })?;
 
     sqlx::query("DELETE FROM versions WHERE save_id = $1")
         .bind(save_id)

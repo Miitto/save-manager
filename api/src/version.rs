@@ -141,14 +141,16 @@ pub async fn create_version(
 
     let mut label = None;
     let mut file_bytes = None;
+    let mut file_name = None;
 
     while let Ok(Some(field)) = form.next_field().await {
         let name = field.name().unwrap_or_default();
-        let file_name = field.file_name().unwrap_or_default();
-        let content_type = field.content_type().unwrap_or_default();
         match name {
             "label" => label = Some(field.text().await.unwrap_or_default()),
-            "file" => file_bytes = Some(field.bytes().await.unwrap_or_default()),
+            "file" => {
+                file_name = field.file_name().map(|s| s.trim().to_string());
+                file_bytes = Some(field.bytes().await.unwrap_or_default());
+            }
             _ => {}
         }
     }
@@ -156,7 +158,7 @@ pub async fn create_version(
     if label.is_none()
         || file_bytes.is_none()
         || label.as_mut().is_some_and(|l| l.trim().is_empty())
-        || file_bytes.is_some_and(|b| b.is_empty())
+        || file_bytes.as_ref().is_some_and(|b| b.is_empty())
     {
         return Err(HttpError::new(
             StatusCode::BAD_REQUEST,
@@ -165,11 +167,27 @@ pub async fn create_version(
         .into());
     }
 
+    if file_name.as_ref().is_none() || file_name.as_ref().unwrap().is_empty() {
+        return Err(
+            HttpError::new(StatusCode::BAD_REQUEST, "Missing file name".to_string()).into(),
+        );
+    }
+
+    let label = label.unwrap().trim().to_string();
+    let file_bytes = file_bytes.unwrap();
+    let file_name = file_name.unwrap();
+
+    #[derive(sqlx::FromRow)]
+    struct SaveIdentRow {
+        name: String,
+        game: crate::Game,
+    }
+
     let version = sqlx::query_as::<_, DbVersion>(
-        "INSERT INTO versions (save_id, label, by, version) VALUES ($1, $2, $3, (SELECT MAX(version) FROM versions WHERE save_id = $1) + 1) RETURNING id, save_id, version, label, timestamp, by as user_id, (SELECT username FROM users WHERE id = by) as username;",
+        "INSERT INTO versions (save_id, label, by, version) VALUES ($1, $2, $3, (SELECT COALESCE(MAX(version), 0) FROM versions WHERE save_id = $1) + 1) RETURNING id, save_id, version, label, timestamp, by as user_id, (SELECT username FROM users WHERE id = by) as username;",
     )
     .bind(save_id)
-    .bind(label.unwrap())
+    .bind(label)
     .bind(user.id)
     .fetch_one(&db.0)
     .await
@@ -181,6 +199,46 @@ pub async fn create_version(
             details: None,
         }
     })?;
+
+    let SaveIdentRow { name, game } =
+        sqlx::query_as::<_, SaveIdentRow>("SELECT name, game FROM saves WHERE id = $1")
+            .bind(save_id)
+            .fetch_one(&db.0)
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch save game: {e:?}");
+                ServerFnError::ServerError {
+                    message: "Internal server error".to_string(),
+                    code: 500,
+                    details: None,
+                }
+            })?;
+
+    let file_path = format!(
+        "./saves/{}/{:?}/{}/{}.zip",
+        user.username, game, name, version.version
+    );
+
+    debug!("Creating version file at: {}", file_path);
+
+    let file = std::fs::File::create(&file_path).map_err(|e| {
+        error!("Failed to create version file: {e:?}");
+        ServerFnError::ServerError {
+            message: "Internal server error".to_string(),
+            code: 500,
+            details: None,
+        }
+    })?;
+
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    use std::io::Write;
+
+    zip.start_file(file_name, options);
+    zip.write(&file_bytes);
+    zip.finish();
 
     Ok(Version {
         id: version.id,
@@ -212,6 +270,44 @@ pub async fn delete_version(save_id: i32, version_id: i32) -> Result<(), ServerF
         )
         .into());
     }
+
+    #[derive(sqlx::FromRow)]
+    struct SaveIdentRow {
+        name: String,
+        game: crate::Game,
+        version: i32,
+    };
+
+    let SaveIdentRow { name, game, version } =
+        sqlx::query_as::<_, SaveIdentRow>("SELECT s.name, s.game, v.version FROM saves s JOIN versions v ON s.id = v.save_id WHERE s.id = $1 AND v.id = $2")
+            .bind(save_id)
+            .bind(version_id)
+            .fetch_one(&db.0)
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch save game: {e:?}");
+                ServerFnError::ServerError {
+                    message: "Internal server error".to_string(),
+                    code: 500,
+                    details: None,
+                }
+            })?;
+
+    let file_path = format!(
+        "./saves/{}/{:?}/{}/{}.zip",
+        user.username, game, name, version
+    );
+
+    debug!("Deleting version file at: {}", file_path);
+
+    std::fs::remove_file(&file_path).map_err(|e| {
+        error!("Failed to delete version file: {e:?}");
+        ServerFnError::ServerError {
+            message: "Internal server error".to_string(),
+            code: 500,
+            details: None,
+        }
+    })?;
 
     sqlx::query("DELETE FROM versions WHERE id = $1")
         .bind(version_id)

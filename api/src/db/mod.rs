@@ -1,7 +1,32 @@
 use anyhow::Context;
-use sqlx::Executor;
+use bcrypt::{DEFAULT_COST, hash};
+use dioxus::prelude::{debug, error};
+use sqlx::{
+    ConnectOptions, Executor,
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+};
+use std::str::FromStr;
 
-pub(crate) async fn setup_db(db: &sqlx::Pool<sqlx::Sqlite>) -> anyhow::Result<()> {
+pub type Pool = sqlx::Pool<sqlx::Sqlite>;
+
+const DATABASE_URL: &str = "file:db.db";
+
+pub(crate) async fn create_pool() -> anyhow::Result<Pool> {
+    let connection_options = sqlx::sqlite::SqliteConnectOptions::from_str(DATABASE_URL)?
+        .create_if_missing(true)
+        .foreign_keys(true)
+        .log_statements(log::LevelFilter::Trace)
+        .log_slow_statements(log::LevelFilter::Warn, std::time::Duration::from_secs(1));
+
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(20)
+        .connect_with(connection_options)
+        .await?;
+
+    Ok(pool)
+}
+
+pub(crate) async fn setup_db(db: &Pool) -> anyhow::Result<()> {
     db.execute(
         r#"CREATE TABLE IF NOT EXISTS users (
                 "id" INTEGER PRIMARY KEY,
@@ -17,7 +42,8 @@ pub(crate) async fn setup_db(db: &sqlx::Pool<sqlx::Sqlite>) -> anyhow::Result<()
                 "name" VARCHAR(256) NOT NULL,
                 "game" INTEGER NOT NULL,
                 "owner" INTEGER NOT NULL,
-                FOREIGN KEY(owner) REFERENCES users(id)
+                FOREIGN KEY(owner) REFERENCES users(id),
+                UNIQUE(name, game, owner)
         )"#,
     )
     .await
