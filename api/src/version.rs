@@ -324,3 +324,61 @@ pub async fn delete_version(save_id: i32, version_id: i32) -> Result<(), ServerF
 
     Ok(())
 }
+
+#[get("/api/save/{save_id}/{version_id}/download", auth: crate::auth::Session, db: crate::ServerDb)]
+pub async fn download_version(
+    save_id: i32,
+    version_id: i32,
+) -> Result<dioxus_fullstack::FileStream, ServerFnError> {
+    let user = auth.require_user()?;
+
+    if query_user_save_access(user.id, save_id, &db.0)
+        .await?
+        .is_none()
+    {
+        warn!("User {} attempeted to access save {}", user.id, save_id);
+        return Err(HttpError::new(
+            StatusCode::UNAUTHORIZED,
+            "You do not have permission to view this save".to_string(),
+        )
+        .into());
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct SaveIdentRow {
+        name: String,
+        game: crate::Game,
+        version: i32,
+    };
+
+    let SaveIdentRow { name, game, version } =
+        sqlx::query_as::<_, SaveIdentRow>("SELECT s.name, s.game, v.version FROM saves s JOIN versions v ON s.id = v.save_id WHERE s.id = $1 AND v.id = $2")
+            .bind(save_id)
+            .bind(version_id)
+            .fetch_one(&db.0)
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch save game: {e:?}");
+                ServerFnError::ServerError {
+                    message: "Internal server error".to_string(),
+                    code: 500,
+                    details: None,
+                }
+            })?;
+
+    let file_path = format!(
+        "./saves/{}/{:?}/{}/{}.zip",
+        user.username, game, name, version
+    );
+
+    Ok(dioxus::fullstack::FileStream::from_path(file_path)
+        .await
+        .map_err(|e| {
+            error!("Failed to create file stream: {e:?}");
+            ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            }
+        })?)
+}

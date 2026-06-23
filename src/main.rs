@@ -24,6 +24,25 @@ const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 pub static USER: GlobalSignal<Option<api::UserPreview>> = Signal::global(|| None);
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Toast {
+    pub title: String,
+    pub message: Element,
+    pub at: std::time::Instant,
+}
+
+pub static TOASTS: GlobalSignal<Vec<Toast>> = Signal::global(Vec::new);
+
+pub fn toast(title: String, message: Element) {
+    TOASTS.with_mut(|t| {
+        t.push(Toast {
+            title,
+            message,
+            at: std::time::Instant::now(),
+        })
+    });
+}
+
 fn main() {
     #[cfg(not(feature = "server"))]
     dioxus::launch(App);
@@ -74,6 +93,7 @@ fn App() -> Element {
                     })
             },
         }
+        Toaster {}
     }
 }
 
@@ -130,7 +150,49 @@ fn Navbar() -> Element {
         }
 
         Outlet::<Route> {}
+
     }
+}
+
+#[component]
+pub fn Toaster() -> Element {
+    use_resource(move || async move {
+        loop {
+            let now = std::time::Instant::now();
+
+            TOASTS.with_mut(|t| {
+                t.retain(|toast| now.duration_since(toast.at) < std::time::Duration::from_secs(5));
+            });
+
+            time_sleep(100).await;
+        }
+    });
+
+    rsx! {
+        div { class: "fixed bottom-4 left-4 flex flex-col gap-2 z-50",
+            for toast in TOASTS() {
+                div { class: "bg-neutral-700 text-white p-4 rounded shadow-lg border border-neutral-500",
+                    h3 { class: "font-bold", "{toast.title}" }
+                    {toast.message}
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "desktop")]
+async fn time_sleep(ms: u64) {
+    tokio::time::sleep(tokio::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(feature = "web")]
+async fn time_sleep(ms: u32) {
+    gloo_timers::future::TimeoutFuture::new(ms).await;
+}
+
+#[cfg(feature = "server")]
+async fn time_sleep(ms: u64) {
+    // On the server, we don't need to sleep, as the server doesn't have a UI to update
 }
 
 #[component]

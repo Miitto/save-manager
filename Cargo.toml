@@ -30,11 +30,16 @@ zip = { version = "8.6.0", default-features = false, features = [
 api = { path = "api" }
 chrono = "0.4.45"
 dioxus = { workspace = true, features = ["fullstack", "router"] }
+futures = "0.3.32"
+gloo-timers = { version = "0.4.0", optional = true, features = ["futures"] }
+js-sys = { version = "0.3.102", optional = true }
 log.workspace = true
 serde.workspace = true
+tokio = { version = "1.39.3", features = ["time"], optional = true }
+web-sys = { version = "0.3.102", optional = true }
 
 [features]
 default = ["desktop"]
-desktop = ["api/desktop", "dioxus/desktop"]
+desktop = ["api/desktop", "dep:tokio", "dioxus/desktop"]
 server = ["api/server", "dioxus/server"]
-web = ["dioxus/web"]
+web = ["dep:gloo-timers", "dep:js-sys", "dep:web-sys", "dioxus/web"]

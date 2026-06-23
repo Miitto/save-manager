@@ -1,10 +1,18 @@
+use std::process::Command;
+
 use dioxus::prelude::*;
 
 use api::UserAccessExt;
 
+use futures::StreamExt;
+
 use crate::{ConfirmDialog, Dialog, USER};
 
 type VersionProvider = Resource<Result<Vec<api::Version>, ServerFnError>>;
+
+struct SaveName {
+    name: String,
+}
 
 #[component]
 pub fn SaveDetails(id: i32) -> Element {
@@ -14,6 +22,12 @@ pub fn SaveDetails(id: i32) -> Element {
     use_context_provider::<VersionProvider>(|| save_versions_res);
 
     let save_version_list = save_versions_res().unwrap();
+
+    let mut save_name = use_signal(|| SaveName {
+        name: String::default(),
+    });
+
+    use_context_provider(|| save_name);
 
     let modify = use_server_future(move || {
         _ = USER();
@@ -69,166 +83,169 @@ pub fn SaveDetails(id: i32) -> Element {
     let nav = use_navigator();
 
     match save {
-        Ok(save) => rsx! {
-            document::Title { "{save.name}" }
+        Ok(save) => {
+            (*save_name.write()).name = save.name.clone();
+            rsx! {
+                document::Title { "{save.name}" }
 
-            div { class: "flex flex-col",
-                div { class: "flex flex-row justify-between items-center p-4",
-                    h1 { class: "text-4xl font-bold", "{save.name}" }
-                    div { class: "flex flex-row gap-2 items-center",
-                        p {
-                            span { class: "font-bold", "{count}" }
-                            " version(s)"
-                        }
-                        button {
-                            class: "flex items-center justify-center w-8 h-8 rounded bg-blue-300 hover:bg-blue-400 cursor-pointer",
-                            onclick: move |_| {
-                                save_access_open.set(true);
-                            },
-                            img { src: crate::icons::USER_KEY }
-                        }
-
-                        if USER().is_some_and(|u| u.id == save.owner) {
+                div { class: "flex flex-col",
+                    div { class: "flex flex-row justify-between items-center p-4",
+                        h1 { class: "text-4xl font-bold", "{save.name}" }
+                        div { class: "flex flex-row gap-2 items-center",
+                            p {
+                                span { class: "font-bold", "{count}" }
+                                " version(s)"
+                            }
                             button {
-                                class: "flex items-center justify-center w-8 h-8 rounded bg-red-300 hover:bg-red-400 cursor-pointer",
+                                class: "flex items-center justify-center w-8 h-8 rounded bg-blue-300 hover:bg-blue-400 cursor-pointer",
                                 onclick: move |_| {
-                                    delete_save_open.set(true);
+                                    save_access_open.set(true);
                                 },
-                                img { src: crate::icons::TRASH }
-                            }
-                        }
-                    }
-                }
-
-                hr { class: "my-1" }
-
-                {save_versions}
-
-                if modify {
-                    button {
-                        class: "fixed bottom-4 right-4 w-12 h-12 rounded-full bg-emerald-400 hover:bg-green-300 flex items-center justify-center cursor-pointer",
-                        onclick: move |_| new_version_open.set(true),
-                        img { src: crate::icons::CIRCLE_PLUS }
-                    }
-                }
-
-                Dialog { open: new_version_open,
-                    h2 { class: "text-2xl font-bold", "New Version" }
-
-                    hr { class: "my-2" }
-
-                    form {
-                        class: "flex flex-col gap-4",
-                        onsubmit: move |e: FormEvent| async move {
-                            e.prevent_default();
-
-                            if let Err(e) = api::create_version(id, e.into()).await {
-                                error!("Failed to create version: {e}");
-                            }
-                            save_versions_res.restart();
-                            new_version_open.set(false);
-                        },
-
-                        input {
-                            class: crate::INPUT_CLASS,
-                            placeholder: "Label",
-                            name: "label",
-                            required: true,
-                        }
-
-                        input {
-                            class: crate::INPUT_CLASS,
-                            placeholder: "File",
-                            name: "file",
-                            multiple: false,
-                            r#type: "file",
-                            required: true,
-                        }
-
-                        div { class: "flex flex-row justify-between",
-
-                            button {
-                                class: "px-4 py-2 bg-gray-400 rounded cursor-pointer hover:bg-gray-500",
-                                onclick: move |e| {
-                                    e.prevent_default();
-                                    new_version_open.set(false);
-                                },
-                                "Cancel"
+                                img { src: crate::icons::USER_KEY }
                             }
 
-                            button { class: "px-4 py-2 bg-emerald-400 rounded cursor-pointer hover:bg-green-300",
-                                "Create"
-                            }
-                        }
-                    }
-                }
-
-                Dialog {
-                    open: save_access_open,
-                    class: "{crate::DIALOG_CLASS} min-w-max",
-                    div { class: "flex flex-row justify-between gap-8 items-top min-w-max",
-                        h2 { class: "text-2xl font-bold", "Manage Access" }
-                        if USER().is_some_and(|u| u.id == save.owner) {
-                            div { class: "flex flex-col gap-2",
-                                form {
-                                    class: "flex flex-row gap-2 items-center",
-                                    onsubmit: move |e: FormEvent| async move {
-                                        e.prevent_default();
-
-                                        debug!("Adding access to save {:?}", e.data());
-                                        let username = match &e.data().values()[0].1 {
-                                            FormValue::Text(s) => s.clone(),
-                                            _ => unreachable!("Expected text input for username"),
-                                        };
-
-                                        add_new_access.call(username).await
+                            if USER().is_some_and(|u| u.id == save.owner) {
+                                button {
+                                    class: "flex items-center justify-center w-8 h-8 rounded bg-red-300 hover:bg-red-400 cursor-pointer",
+                                    onclick: move |_| {
+                                        delete_save_open.set(true);
                                     },
-                                    input {
-                                        class: crate::INPUT_CLASS,
-                                        placeholder: "Username",
-                                        name: "username",
-                                        required: true,
-                                    }
+                                    img { src: crate::icons::TRASH }
+                                }
+                            }
+                        }
+                    }
 
-                                    button { class: "p-1 bg-emerald-300 rounded cursor-pointer hover:bg-green-200",
-                                        img {
-                                            class: "w-6 h-6 ",
-                                            src: crate::icons::CIRCLE_PLUS,
+                    hr { class: "my-1" }
+
+                    {save_versions}
+
+                    if modify {
+                        button {
+                            class: "fixed bottom-4 right-4 w-12 h-12 rounded-full bg-emerald-400 hover:bg-green-300 flex items-center justify-center cursor-pointer",
+                            onclick: move |_| new_version_open.set(true),
+                            img { src: crate::icons::CIRCLE_PLUS }
+                        }
+                    }
+
+                    Dialog { open: new_version_open,
+                        h2 { class: "text-2xl font-bold", "New Version" }
+
+                        hr { class: "my-2" }
+
+                        form {
+                            class: "flex flex-col gap-4",
+                            onsubmit: move |e: FormEvent| async move {
+                                e.prevent_default();
+
+                                if let Err(e) = api::create_version(id, e.into()).await {
+                                    error!("Failed to create version: {e}");
+                                }
+                                save_versions_res.restart();
+                                new_version_open.set(false);
+                            },
+
+                            input {
+                                class: crate::INPUT_CLASS,
+                                placeholder: "Label",
+                                name: "label",
+                                required: true,
+                            }
+
+                            input {
+                                class: crate::INPUT_CLASS,
+                                placeholder: "File",
+                                name: "file",
+                                multiple: false,
+                                r#type: "file",
+                                required: true,
+                            }
+
+                            div { class: "flex flex-row justify-between",
+
+                                button {
+                                    class: "px-4 py-2 bg-gray-400 rounded cursor-pointer hover:bg-gray-500",
+                                    onclick: move |e| {
+                                        e.prevent_default();
+                                        new_version_open.set(false);
+                                    },
+                                    "Cancel"
+                                }
+
+                                button { class: "px-4 py-2 bg-emerald-400 rounded cursor-pointer hover:bg-green-300",
+                                    "Create"
+                                }
+                            }
+                        }
+                    }
+
+                    Dialog {
+                        open: save_access_open,
+                        class: "{crate::DIALOG_CLASS} min-w-max",
+                        div { class: "flex flex-row justify-between gap-8 items-top min-w-max",
+                            h2 { class: "text-2xl font-bold", "Manage Access" }
+                            if USER().is_some_and(|u| u.id == save.owner) {
+                                div { class: "flex flex-col gap-2",
+                                    form {
+                                        class: "flex flex-row gap-2 items-center",
+                                        onsubmit: move |e: FormEvent| async move {
+                                            e.prevent_default();
+
+                                            debug!("Adding access to save {:?}", e.data());
+                                            let username = match &e.data().values()[0].1 {
+                                                FormValue::Text(s) => s.clone(),
+                                                _ => unreachable!("Expected text input for username"),
+                                            };
+
+                                            add_new_access.call(username).await
+                                        },
+                                        input {
+                                            class: crate::INPUT_CLASS,
+                                            placeholder: "Username",
+                                            name: "username",
+                                            required: true,
+                                        }
+
+                                        button { class: "p-1 bg-emerald-300 rounded cursor-pointer hover:bg-green-200",
+                                            img {
+                                                class: "w-6 h-6 ",
+                                                src: crate::icons::CIRCLE_PLUS,
+                                            }
                                         }
                                     }
+                                    {add_new_access_error}
                                 }
-                                {add_new_access_error}
                             }
+                        }
+
+                        hr { class: "my-2" }
+
+                        SaveAccessList {
+                            save_access_res,
+                            save_id: id,
+                            is_owner: USER().is_some_and(|u| u.id == save.owner),
                         }
                     }
 
-                    hr { class: "my-2" }
-
-                    SaveAccessList {
-                        save_access_res,
-                        save_id: id,
-                        is_owner: USER().is_some_and(|u| u.id == save.owner),
-                    }
-                }
-
-                if USER().is_some_and(|u| u.id == save.owner) {
-                    ConfirmDialog {
-                        open: delete_save_open,
-                        title: "Delete Save".to_string(),
-                        message: "Are you sure you want to delete this save? This action cannot be undone."
-                            .to_string(),
-                        on_confirm: move |_| {
-                            async move {
-                                if let Err(e) = api::delete_save(id).await {
-                                    error!("Failed to delete save: {e}");
+                    if USER().is_some_and(|u| u.id == save.owner) {
+                        ConfirmDialog {
+                            open: delete_save_open,
+                            title: "Delete Save".to_string(),
+                            message: "Are you sure you want to delete this save? This action cannot be undone."
+                                .to_string(),
+                            on_confirm: move |_| {
+                                async move {
+                                    if let Err(e) = api::delete_save(id).await {
+                                        error!("Failed to delete save: {e}");
+                                    }
+                                    nav.replace(crate::Route::Saves {});
                                 }
-                                nav.replace(crate::Route::Saves {});
-                            }
-                        },
+                            },
+                        }
                     }
                 }
             }
-        },
+        }
         Err(e) => rsx! {
             div { class: "p-4",
                 h2 { "Error loading save details" }
@@ -299,6 +316,8 @@ fn VersionRow(version: api::Version, modify: ReadSignal<bool>) -> Element {
         Ok(()) as Result<(), ServerFnError>
     });
 
+    let save_name = use_context::<Signal<SaveName>>();
+
     rsx! {
         div { class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-neutral-600 odd:bg-neutral-700 items-center",
 
@@ -309,6 +328,50 @@ fn VersionRow(version: api::Version, modify: ReadSignal<bool>) -> Element {
             button {
                 title: "Download",
                 class: "bg-cyan-400 hover:bg-teal-300 hover:cursor-pointer rounded w-8 h-8 flex justify-center items-center",
+                onclick: move |_| {
+                    let version = version.clone();
+                    async move {
+                        let mut stream = match api::download_version(version.save_id, version.id)
+                            .await
+                        {
+                            Ok(stream) => stream,
+                            Err(e) => {
+                                error!("Failed to download version: {e}");
+                                return;
+                            }
+                        };
+                        debug!("Stream: {:?}", stream);
+                        let mut bytes = Vec::new();
+                        while let Some(Ok(chunk)) = stream.next().await {
+                            bytes.extend_from_slice(&chunk);
+                        }
+
+                        download_version(&bytes, &save_name.peek().name, &version);
+
+                        #[cfg(feature = "desktop")]
+                        crate::toast("Download Complete".to_string(), rsx! {
+                            p { "Version {version.version} downloaded successfully." }
+                            button {
+                                class: "underline cursor-pointer",
+                                onclick: move |_| {
+                                    let path = get_version_path(&save_name.peek().name, &version);
+                                    Command::new("explorer")
+                                        .arg("/select,")
+                                        .arg(path)
+                                        .spawn()
+                                        .expect("Failed to open file explorer")
+                                        .wait()
+                                        .expect("Failed to wait for file explorer");
+                                },
+                                "View in Explorer"
+                            }
+                        });
+                        #[cfg(feature = "web")]
+                        crate::toast("Download Complete".to_string(), rsx! {
+                            p { "Version {version.version} downloaded successfully." }
+                        });
+                    }
+                },
                 img { src: crate::icons::DOWNLOAD }
             }
             {install_btn}
@@ -455,4 +518,48 @@ fn SaveAccessRow(
             }
         }
     }
+}
+
+#[cfg(feature = "desktop")]
+fn get_version_cache_dir() -> std::path::PathBuf {
+    use std::env;
+
+    let mut cache_dir = env::current_exe().expect("Failed to get current exe path");
+    cache_dir.pop(); // Remove the executable name
+    cache_dir.push("downloads");
+    if !cache_dir.exists() {
+        std::fs::create_dir_all(&cache_dir).expect("Failed to create version cache directory");
+    }
+    cache_dir
+}
+
+#[cfg(feature = "desktop")]
+fn get_version_path(save_name: &str, version: &api::Version) -> std::path::PathBuf {
+    let cache_dir = get_version_cache_dir();
+    cache_dir
+        .join(save_name)
+        .join(format!("{}.zip", version.version))
+}
+
+#[cfg(feature = "desktop")]
+fn download_version(data: &[u8], save_name: &str, version: &api::Version) {
+    use std::fs::File;
+    use std::io::Write;
+
+    let file_path = get_version_path(save_name, version);
+    if let Some(parent) = file_path.parent()
+        && !parent.exists()
+    {
+        std::fs::create_dir_all(parent).expect("Failed to create directories for zip file");
+    }
+    debug!("Saving version {} to {:?}", version.version, file_path);
+    let mut file = File::create(&file_path).expect("Failed to create zip file");
+    file.write_all(data).expect("Failed to write zip file");
+}
+
+#[cfg(feature = "server")]
+fn download_version(data: &[u8], save_name: &str, version: &api::Version) {
+    panic!(
+        "This should not have been called on the server. This function should only be called on the web or desktop client."
+    );
 }
