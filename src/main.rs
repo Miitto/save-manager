@@ -37,8 +37,15 @@ pub fn toast(title: String, message: Element) {
 }
 
 fn main() {
-    #[cfg(not(feature = "server"))]
+    dioxus_cookie::init();
+
+    #[cfg(feature = "web")]
     dioxus::launch(App);
+
+    #[cfg(feature = "desktop")]
+    dioxus::LaunchBuilder::new()
+        .with_cfg(dioxus::desktop::Config::new().with_menu(None))
+        .launch(App);
 
     #[cfg(feature = "server")]
     api::launch_server(App);
@@ -190,21 +197,6 @@ fn ToastE(toast: Toast) -> Element {
     }
 }
 
-#[cfg(feature = "desktop")]
-async fn time_sleep(ms: u64) {
-    tokio::time::sleep(tokio::time::Duration::from_millis(ms)).await;
-}
-
-#[cfg(feature = "web")]
-async fn time_sleep(ms: u32) {
-    gloo_timers::future::TimeoutFuture::new(ms).await;
-}
-
-#[cfg(feature = "server")]
-async fn time_sleep(ms: u64) {
-    // On the server, we don't need to sleep, as the server doesn't have a UI to update
-}
-
 #[component]
 fn AuthLayout() -> Element {
     let route = use_route::<Route>();
@@ -306,7 +298,7 @@ fn Login() -> Element {
                 input {
                     r#type: "submit",
                     class: "rounded bg-white text-black px-4 py-2 cursor-pointer",
-                    value: "Login"
+                    value: "Login",
                 }
             }
         }
@@ -389,7 +381,7 @@ fn Register() -> Element {
                 input {
                     r#type: "submit",
                     class: "rounded bg-white text-black px-4 py-2 cursor-pointer",
-                    value: "Register"
+                    value: "Register",
                 }
             }
         }

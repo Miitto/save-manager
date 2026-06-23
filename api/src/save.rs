@@ -295,9 +295,19 @@ pub async fn get_save_name(save_id: i32) -> Result<String, ServerFnError> {
         })
 }
 
+pub fn is_save_name_valid(name: &str) -> bool {
+    !name.trim().is_empty() && !name.contains('/') && !name.contains('\\')
+}
+
 #[post("/api/save/create", auth: crate::auth::Session, db: crate::ServerDb)]
 pub async fn create_save(name: String, game: Game) -> Result<Save, ServerFnError> {
     let user = auth.require_user()?;
+
+    if !is_save_name_valid(&name) {
+        return Err(
+            HttpError::new(StatusCode::BAD_REQUEST, "Invalid save name".to_string()).into(),
+        );
+    }
 
     std::fs::create_dir_all(format!("./saves/{}/{:?}/{}", user.username, game, name)).map_err(
         |e| {

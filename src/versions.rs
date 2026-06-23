@@ -84,7 +84,7 @@ pub fn SaveDetails(id: i32) -> Element {
 
     match save {
         Ok(save) => {
-            (*save_name.write()).name = save.name.clone();
+            save_name.write().name = save.name.clone();
             rsx! {
                 document::Title { "{save.name}" }
 
@@ -137,6 +137,20 @@ pub fn SaveDetails(id: i32) -> Element {
                             class: "flex flex-col gap-4",
                             onsubmit: move |e: FormEvent| async move {
                                 e.prevent_default();
+
+                                let values = e.data().values();
+
+                                let name = match &values[0].1 {
+                                    FormValue::Text(s) => s,
+                                    _ => unreachable!("Expected text input for label"),
+                                };
+
+                                if name.contains('/') || name.contains('\\') {
+                                    crate::toast("Invalid Version Label".to_string(), rsx! {
+                                        p { "Version label cannot contain '/' or '\\' characters." }
+                                    });
+                                    return;
+                                }
 
                                 if let Err(e) = api::create_version(id, e.into()).await {
                                     error!("Failed to create version: {e}");
@@ -318,50 +332,50 @@ fn VersionRow(version: api::Version, modify: ReadSignal<bool>) -> Element {
     let download_button = rsx! {
         Link {
             class: DOWNLOAD_CLASS,
-            to: format!(
-                "/api/save/{}/{}/download",
-                version.save_id, version.id
-            ),
+            to: format!("/api/save/{}/{}/download", version.save_id, version.id),
             img { src: crate::icons::DOWNLOAD }
         }
     };
 
+    let v2 = version.clone();
+
     #[cfg(feature = "desktop")]
     let download_button = rsx! {
-    button {
-                    title: "Download",
-                    class: DOWNLOAD_CLASS,
-                    onclick: move |_| {
-                        let version = version.clone();
-                        async move {
-                            #[cfg(feature = "desktop")]
-                            {
-                            download_version(&save_name.peek().name, &version).await;
+        button {
+            title: "Download",
+            class: DOWNLOAD_CLASS,
+            onclick: move |_| {
+                let version = v2.clone();
+                async move {
+                    #[cfg(feature = "desktop")]
+                    {
+                        let name = save_name.peek().name.clone();
+                        download_version(&name, &version).await;
 
-                            crate::toast("Download Complete".to_string(), rsx! {
-                                p { "Version {version.version} downloaded successfully." }
-                                button {
-                                    class: "underline cursor-pointer",
-                                    onclick: move |_| {
-                                        let path = get_version_path(&save_name.peek().name, &version);
-                                        Command::new("explorer")
-                                            .arg("/select,")
-                                            .arg(path)
-                                            .spawn()
-                                            .expect("Failed to open file explorer")
-                                            .wait()
-                                            .expect("Failed to wait for file explorer");
-                                    },
-                                    "View in Explorer"
-                                }
-                            });
+                        crate::toast("Download Complete".to_string(), rsx! {
+                            p { "Version {version.version} downloaded successfully." }
+                            button {
+                                class: "underline cursor-pointer",
+                                onclick: move |_| {
+                                    let path = get_version_path(&save_name.peek().name, &version);
+                                    Command::new("explorer")
+                                        .arg("/select,")
+                                        .arg(path)
+                                        .spawn()
+                                        .expect("Failed to open file explorer")
+                                        .wait()
+                                        .expect("Failed to wait for file explorer");
+                                },
+                                "View in Explorer"
                             }
-                        }
-                    },
-                    img { src: crate::icons::DOWNLOAD }
+                        });
+                    }
                 }
+            },
+            img { src: crate::icons::DOWNLOAD }
+        }
 
-        };
+    };
 
     rsx! {
         div { class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-neutral-600 odd:bg-neutral-700 items-center",
@@ -371,7 +385,7 @@ fn VersionRow(version: api::Version, modify: ReadSignal<bool>) -> Element {
             span { class: "text-center", {time_string} }
             span { class: "text-center", "{version.by.username}" }
             {download_button}
-                        {install_btn}
+            {install_btn}
             if modify() {
                 button {
                     title: "Delete",

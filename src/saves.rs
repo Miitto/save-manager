@@ -64,6 +64,13 @@ pub fn Saves() -> Element {
                         std::mem::transmute(get_text(&data[1].1).parse::<i8>().unwrap())
                     };
 
+                    if name.contains('/') || name.contains('\\') {
+                        crate::toast("Invalid Save Name".to_string(), rsx! {
+                            p { "Save name cannot contain '/' or '\\' characters." }
+                        });
+                        return;
+                    }
+
                     if let Err(e) = api::create_save(name, game).await {
                         debug!("Error creating save: {:?}", e);
                     } else {
@@ -221,7 +228,7 @@ fn SaveList(saves: ReadSignal<Vec<api::Save>>) -> Element {
                             },
                             img { class: "invert", src: last_updated_sort_icon }
                         }
-
+                    
                     }
                     span { "Versions" }
                 }

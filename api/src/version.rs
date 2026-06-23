@@ -118,6 +118,10 @@ pub async fn get_version_details(save_id: i32, version_id: i32) -> Result<Versio
     })
 }
 
+pub fn is_version_name_valid(name: &str) -> bool {
+    !name.trim().is_empty() && !name.contains('/') && !name.contains('\\')
+}
+
 #[post("/api/save/{save_id}/create", auth: crate::auth::Session, db: crate::ServerDb)]
 pub async fn create_version(
     save_id: i32,
@@ -176,6 +180,12 @@ pub async fn create_version(
     let label = label.unwrap().trim().to_string();
     let file_bytes = file_bytes.unwrap();
     let file_name = file_name.unwrap();
+
+    if !is_version_name_valid(&label) {
+        return Err(
+            HttpError::new(StatusCode::BAD_REQUEST, "Invalid version label".to_string()).into(),
+        );
+    }
 
     #[derive(sqlx::FromRow)]
     struct SaveIdentRow {
@@ -325,11 +335,12 @@ pub async fn delete_version(save_id: i32, version_id: i32) -> Result<(), ServerF
     Ok(())
 }
 
+#[cfg(feature = "server")]
 struct VersionFile {
     pub save_name: String,
     pub game: crate::Game,
     pub version: i32,
-    pub path: String,
+    pub path: std::path::PathBuf,
 }
 
 #[cfg(feature = "server")]
@@ -384,42 +395,35 @@ async fn get_version_file(
         save_name: name,
         game: game,
         version,
-        path: file_path,
+        path: std::path::PathBuf::from(file_path),
     })
 }
 
-#[get("/api/save/{save_id}/{version_id}/stream", auth: crate::auth::Session, db: crate::ServerDb)]
+#[get("/api/save/{save_id}/{version_id}/download", auth: crate::auth::Session, db: crate::ServerDb)]
 pub async fn download_version(
     save_id: i32,
     version_id: i32,
 ) -> Result<dioxus_fullstack::FileStream, ServerFnError> {
-    let file_path = get_version_file(save_id, version_id, &auth, &db).await?;
-
-    Ok(dioxus::fullstack::FileStream::from_path(file_path.path)
-        .await
-        .map_err(|e| {
-            error!("Failed to create file stream: {e:?}");
-            ServerFnError::ServerError {
-                message: "Internal server error".to_string(),
-                code: 500,
-                details: None,
-            }
-        })?)
-}
-
-#[get("/api/save/{save_id}/{version_id}/download", auth: crate::auth::Session, db: crate::ServerDb)]
-pub async fn download_version_file(
-    save_id: i32,
-    version_id: i32,
-) -> Result<dioxus_fullstack::response::Response, ServerFnError> {
-    use axum::http::header;
-    use axum::response::IntoResponse;
     use tokio_util::io::ReaderStream;
-
     let file_path = get_version_file(save_id, version_id, &auth, &db).await?;
 
-    let file = tokio::fs::File::open(file_path.path).await.map_err(|e| {
-        error!("Failed to create file stream: {e:?}");
+    let file_name = format!(
+        "{:?}_{}_v{}.zip",
+        file_path.game, file_path.save_name, file_path.version
+    );
+
+    let meta = file_path.path.metadata().map_err(|e| {
+        error!("Failed to get version file metadata: {e:?}");
+        ServerFnError::ServerError {
+            message: "Internal server error".to_string(),
+            code: 500,
+            details: None,
+        }
+    })?;
+
+    let size = meta.len();
+    let file = tokio::fs::File::open(&file_path.path).await.map_err(|e| {
+        error!("Failed to open version file: {e:?}");
         ServerFnError::ServerError {
             message: "Internal server error".to_string(),
             code: 500,
@@ -429,20 +433,12 @@ pub async fn download_version_file(
 
     let stream = ReaderStream::new(file);
 
-    let body = axum::body::Body::from_stream(stream);
+    let body = axum::body::Body::from_stream(stream).into_data_stream();
 
-    let file_name = format!(
-        "{:?}_{}_v{}",
-        file_path.game, file_path.save_name, file_path.version
-    );
-
-    let headers = [
-        (header::CONTENT_TYPE, "application/zip".to_string()),
-        (
-            header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{}\"", file_name),
-        ),
-    ];
-
-    Ok((headers, body).into_response())
+    Ok(dioxus::fullstack::FileStream::from_raw(
+        file_name,
+        Some(size),
+        "application/zip".to_string(),
+        body,
+    ))
 }
