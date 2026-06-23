@@ -32,9 +32,20 @@ pub struct Toast {
 
 pub static TOASTS: GlobalSignal<Vec<Toast>> = Signal::global(Vec::new);
 
-pub fn toast(title: String, message: Element) {
-    TOASTS.with_mut(|t| t.push(Toast { title, message }));
+pub fn toast(title: impl Into<String>, message: Element) {
+    TOASTS.with_mut(|t| {
+        t.push(Toast {
+            title: title.into(),
+            message,
+        })
+    });
 }
+
+#[cfg(not(debug_assertions))]
+const DEFAULT_SERVER_URL: &str = "https://saves.miitto.dev";
+
+#[cfg(not(debug_assertions))]
+static SERVER_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 fn main() {
     dioxus_cookie::init();
@@ -43,9 +54,30 @@ fn main() {
     dioxus::launch(App);
 
     #[cfg(feature = "desktop")]
-    dioxus::LaunchBuilder::new()
-        .with_cfg(dioxus::desktop::Config::new().with_menu(None))
-        .launch(App);
+    {
+        #[cfg(not(debug_assertions))]
+        {
+            _ = SERVER_URL.set(
+                std::env::var("SERVER_URL")
+                    .ok()
+                    .or_else(|| {
+                        let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+
+                        let server_url_file = exe_dir.join("server_url.txt");
+                        if server_url_file.exists() {
+                            std::fs::read_to_string(server_url_file).ok()
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string()),
+            );
+            dioxus::fullstack::set_server_url(SERVER_URL.get().expect("Server URL not set??"));
+        }
+        dioxus::LaunchBuilder::new()
+            .with_cfg(dioxus::desktop::Config::new().with_menu(None))
+            .launch(App);
+    }
 
     #[cfg(feature = "server")]
     api::launch_server(App);
@@ -72,41 +104,10 @@ pub enum Route {
 
 #[component]
 fn App() -> Element {
-    let mut update_user = use_action(move || async move {
-        if let Ok(usr) = api::get_user().await {
-            (*USER.write()) = Some(usr);
-        } else {
-            (*USER.write()) = None;
-        }
-
-        Ok(()) as Result<(), ServerFnError>
-    });
-
-    use_effect(move || {
-        update_user.call();
-    });
-
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
-        Router::<Route> {
-            config: || {
-                RouterConfig::default()
-                    .on_update(|state| {
-                        if USER().is_some() {
-                            if matches!(state.current(), Route::Login {} | Route::Register {}) {
-                                return Some(NavigationTarget::Internal(Route::Saves {}));
-                            }
-                        } else {
-                            if !matches!(state.current(), Route::Login {} | Route::Register {}) {
-                                return Some(NavigationTarget::Internal(Route::Login {}));
-                            }
-                        }
-
-                        None
-                    })
-            },
-        }
+        Router::<Route> {}
         Toaster {}
     }
 }
@@ -145,9 +146,29 @@ fn Navbar() -> Element {
             UserDropdown { user }
         }
     } else {
-        navigator.replace(Route::Login {});
         rsx! {}
     };
+
+    let mut update_user = use_action(move || async move {
+        if let Ok(usr) = api::get_user().await {
+            (*USER.write()) = Some(usr);
+        } else {
+            (*USER.write()) = None;
+        }
+
+        Ok(()) as Result<(), ServerFnError>
+    });
+
+    use_effect(move || {
+        update_user.call();
+    });
+
+    use_effect(move || {
+        if update_user.value().is_some() && USER().is_none() {
+            warn!("User is not logged in, redirecting to login page");
+            navigator.replace(Route::Login {});
+        }
+    });
 
     rsx! {
         div { class: "flex justify-between items-center h-10
@@ -164,7 +185,6 @@ fn Navbar() -> Element {
         }
 
         Outlet::<Route> {}
-
     }
 }
 
@@ -205,9 +225,24 @@ fn AuthLayout() -> Element {
 
     let navigator = use_navigator();
 
+    let mut update_user = use_action(move || async move {
+        if let Ok(usr) = api::get_user().await {
+            (*USER.write()) = Some(usr);
+        } else {
+            (*USER.write()) = None;
+        }
+
+        Ok(()) as Result<(), ServerFnError>
+    });
+
     use_effect(move || {
-        if USER().is_some() {
-            navigator.replace(NavigationTarget::Internal(Route::Saves {}));
+        update_user.call();
+    });
+
+    use_effect(move || {
+        if update_user.value().is_some() && USER().is_none() {
+            warn!("User is not logged in, redirecting to login page");
+            navigator.replace(Route::Login {});
         }
     });
 
@@ -254,7 +289,6 @@ fn Login() -> Element {
             },
         };
         *USER.write() = Some(usr);
-        navigator.replace(Route::Saves {});
         Ok::<Option<String>, ServerFnError>(None)
     });
 
@@ -329,7 +363,6 @@ fn Register() -> Element {
             },
         };
         *USER.write() = Some(usr);
-        navigator.replace(Route::Saves {});
         Ok::<Option<String>, ServerFnError>(None)
     });
 

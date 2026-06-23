@@ -308,6 +308,11 @@ fn VersionRow(version: api::Version, modify: ReadSignal<bool>) -> Element {
         button {
             title: "Deploy",
             class: "bg-yellow-300 hover:bg-yellow-200 hover:cursor-pointer rounded w-8 h-8 flex justify-center items-center",
+            onclick: move |_| {
+                crate::toast("WIP", rsx! {
+                    p { "Deploying versions is not yet implemented." }
+                });
+            },
             img { src: crate::icons::INSTALL }
         }
     };

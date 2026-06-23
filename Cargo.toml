@@ -30,7 +30,7 @@ zip = { version = "8.6.0", default-features = false, features = [
 api = { path = "api" }
 chrono = "0.4.45"
 dioxus = { workspace = true, features = ["fullstack", "router"] }
-dioxus-cookie = { version = "0.2.0", features = ["desktop", "server"] }
+dioxus-cookie = "0.2.0"
 dioxus-sdk-time = "0.7.0"
 futures = "0.3.32"
 log.workspace = true
@@ -38,6 +38,6 @@ serde.workspace = true
 
 [features]
 default = ["desktop"]
-desktop = ["api/desktop", "dioxus/desktop"]
-server = ["api/server", "dioxus/server"]
+desktop = ["api/desktop", "dioxus-cookie/desktop", "dioxus/desktop"]
+server = ["api/server", "dioxus-cookie/server", "dioxus/server"]
 web = ["dioxus/web"]

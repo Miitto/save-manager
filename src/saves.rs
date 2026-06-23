@@ -21,14 +21,6 @@ pub fn Saves() -> Element {
 
     let saves = saves_res().unwrap_or_else(Vec::<api::Save>::new);
 
-    let navigator = use_navigator();
-
-    use_effect(move || {
-        if USER().is_none() {
-            navigator.replace(Route::Login {});
-        }
-    });
-
     let mut new_save_open = use_signal(|| false);
 
     rsx! {
@@ -130,7 +122,7 @@ fn SaveList(saves: ReadSignal<Vec<api::Save>>) -> Element {
     }
 
     let mut filter = use_signal(String::new);
-    let mut sorted_by = use_signal(|| SortBy::LastUpdatedAsc);
+    let mut sorted_by = use_signal(|| SortBy::LastUpdatedDesc);
 
     let filtered_saves = use_memo(move || {
         let filter_str = filter().to_lowercase();
@@ -172,8 +164,8 @@ fn SaveList(saves: ReadSignal<Vec<api::Save>>) -> Element {
     };
 
     let last_updated_sort_icon = match sorted_by() {
-        SortBy::LastUpdatedAsc => crate::icons::CHEVRON_DOWN,
-        SortBy::LastUpdatedDesc => crate::icons::CHEVRON_UP,
+        SortBy::LastUpdatedAsc => crate::icons::CHEVRON_UP,
+        SortBy::LastUpdatedDesc => crate::icons::CHEVRON_DOWN,
         _ => crate::icons::CHEVRON_UP_DOWN,
     };
 
