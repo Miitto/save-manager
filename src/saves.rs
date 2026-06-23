@@ -23,9 +23,11 @@ pub fn Saves() -> Element {
 
     let navigator = use_navigator();
 
-    if USER().is_none() {
-        navigator.replace(Route::Login {});
-    }
+    use_effect(move || {
+        if USER().is_none() {
+            navigator.replace(Route::Login {});
+        }
+    });
 
     let mut new_save_open = use_signal(|| false);
 
@@ -236,13 +238,9 @@ fn SaveRow(save: api::Save) -> Element {
     let time = save
         .most_recent_version
         .map(|t| {
-            t.duration_since(std::time::UNIX_EPOCH)
-                .map(|d| {
-                    let datetime = chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                        .expect("Failed to convert date from unixepoch");
-                    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-                })
-                .unwrap_or_else(|_| "Invalid Timestamp".to_string())
+            let datetime = chrono::DateTime::from_timestamp(t as i64, 0)
+                .expect("Failed to convert date from unixepoch");
+            datetime.format("%Y-%m-%d %H:%M:%S").to_string()
         })
         .unwrap_or_else(|| "Never".to_string());
 

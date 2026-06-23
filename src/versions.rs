@@ -284,15 +284,10 @@ fn VersionList(versions: ReadSignal<Vec<api::Version>>, modify: ReadSignal<bool>
 
 #[component]
 fn VersionRow(version: api::Version, modify: ReadSignal<bool>) -> Element {
-    let time_string = version
-        .timestamp
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| {
-            let datetime = chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                .expect("Failed to convert date from unixepoch");
-            datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-        })
-        .unwrap_or_else(|_| "Invalid Timestamp".to_string());
+    let time_string = chrono::DateTime::from_timestamp(version.timestamp as i64, 0)
+        .expect("Failed to convert date from unixepoch")
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
 
     #[cfg(feature = "desktop")]
     let install_btn = rsx! {
@@ -318,6 +313,56 @@ fn VersionRow(version: api::Version, modify: ReadSignal<bool>) -> Element {
 
     let save_name = use_context::<Signal<SaveName>>();
 
+    const DOWNLOAD_CLASS: &str = "bg-cyan-400 hover:bg-teal-300 hover:cursor-pointer rounded w-8 h-8 flex justify-center items-center";
+    #[cfg(not(feature = "desktop"))]
+    let download_button = rsx! {
+        Link {
+            class: DOWNLOAD_CLASS,
+            to: format!(
+                "/api/save/{}/{}/download",
+                version.save_id, version.id
+            ),
+            img { src: crate::icons::DOWNLOAD }
+        }
+    };
+
+    #[cfg(feature = "desktop")]
+    let download_button = rsx! {
+    button {
+                    title: "Download",
+                    class: DOWNLOAD_CLASS,
+                    onclick: move |_| {
+                        let version = version.clone();
+                        async move {
+                            #[cfg(feature = "desktop")]
+                            {
+                            download_version(&save_name.peek().name, &version).await;
+
+                            crate::toast("Download Complete".to_string(), rsx! {
+                                p { "Version {version.version} downloaded successfully." }
+                                button {
+                                    class: "underline cursor-pointer",
+                                    onclick: move |_| {
+                                        let path = get_version_path(&save_name.peek().name, &version);
+                                        Command::new("explorer")
+                                            .arg("/select,")
+                                            .arg(path)
+                                            .spawn()
+                                            .expect("Failed to open file explorer")
+                                            .wait()
+                                            .expect("Failed to wait for file explorer");
+                                    },
+                                    "View in Explorer"
+                                }
+                            });
+                            }
+                        }
+                    },
+                    img { src: crate::icons::DOWNLOAD }
+                }
+
+        };
+
     rsx! {
         div { class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-neutral-600 odd:bg-neutral-700 items-center",
 
@@ -325,56 +370,8 @@ fn VersionRow(version: api::Version, modify: ReadSignal<bool>) -> Element {
             span { class: "text-center", "{version.version}" }
             span { class: "text-center", {time_string} }
             span { class: "text-center", "{version.by.username}" }
-            button {
-                title: "Download",
-                class: "bg-cyan-400 hover:bg-teal-300 hover:cursor-pointer rounded w-8 h-8 flex justify-center items-center",
-                onclick: move |_| {
-                    let version = version.clone();
-                    async move {
-                        let mut stream = match api::download_version(version.save_id, version.id)
-                            .await
-                        {
-                            Ok(stream) => stream,
-                            Err(e) => {
-                                error!("Failed to download version: {e}");
-                                return;
-                            }
-                        };
-                        debug!("Stream: {:?}", stream);
-                        let mut bytes = Vec::new();
-                        while let Some(Ok(chunk)) = stream.next().await {
-                            bytes.extend_from_slice(&chunk);
-                        }
-
-                        download_version(&bytes, &save_name.peek().name, &version);
-
-                        #[cfg(feature = "desktop")]
-                        crate::toast("Download Complete".to_string(), rsx! {
-                            p { "Version {version.version} downloaded successfully." }
-                            button {
-                                class: "underline cursor-pointer",
-                                onclick: move |_| {
-                                    let path = get_version_path(&save_name.peek().name, &version);
-                                    Command::new("explorer")
-                                        .arg("/select,")
-                                        .arg(path)
-                                        .spawn()
-                                        .expect("Failed to open file explorer")
-                                        .wait()
-                                        .expect("Failed to wait for file explorer");
-                                },
-                                "View in Explorer"
-                            }
-                        });
-                        #[cfg(feature = "web")]
-                        crate::toast("Download Complete".to_string(), rsx! {
-                            p { "Version {version.version} downloaded successfully." }
-                        });
-                    }
-                },
-                img { src: crate::icons::DOWNLOAD }
-            }
-            {install_btn}
+            {download_button}
+                        {install_btn}
             if modify() {
                 button {
                     title: "Delete",
@@ -542,7 +539,20 @@ fn get_version_path(save_name: &str, version: &api::Version) -> std::path::PathB
 }
 
 #[cfg(feature = "desktop")]
-fn download_version(data: &[u8], save_name: &str, version: &api::Version) {
+async fn download_version(save_name: &str, version: &api::Version) {
+    let mut stream = match api::download_version(version.save_id, version.id).await {
+        Ok(stream) => stream,
+        Err(e) => {
+            error!("Failed to download version: {e}");
+            return;
+        }
+    };
+    debug!("Stream: {:?}", stream);
+    let mut bytes = Vec::new();
+    while let Some(Ok(chunk)) = stream.next().await {
+        bytes.extend_from_slice(&chunk);
+    }
+
     use std::fs::File;
     use std::io::Write;
 
@@ -554,12 +564,5 @@ fn download_version(data: &[u8], save_name: &str, version: &api::Version) {
     }
     debug!("Saving version {} to {:?}", version.version, file_path);
     let mut file = File::create(&file_path).expect("Failed to create zip file");
-    file.write_all(data).expect("Failed to write zip file");
-}
-
-#[cfg(feature = "server")]
-fn download_version(data: &[u8], save_name: &str, version: &api::Version) {
-    panic!(
-        "This should not have been called on the server. This function should only be called on the web or desktop client."
-    );
+    file.write_all(&bytes).expect("Failed to write zip file");
 }

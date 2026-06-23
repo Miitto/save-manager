@@ -113,6 +113,18 @@ pub async fn logout() -> Result<()> {
     Ok(())
 }
 
+#[get("/api/user", auth: auth::Session)]
+pub async fn get_user() -> Result<UserPreview> {
+    use auth::RequireUser;
+
+    let user = auth.require_user()?;
+
+    Ok(UserPreview {
+        id: user.id,
+        username: user.username.clone(),
+    })
+}
+
 /// Get the current user's permissions, guarding the endpoint with the `Auth` validator.
 /// If this returns false, we use the `or_unauthorized` extension to return a 401 error.
 /*

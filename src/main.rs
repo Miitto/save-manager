@@ -28,19 +28,12 @@ pub static USER: GlobalSignal<Option<api::UserPreview>> = Signal::global(|| None
 pub struct Toast {
     pub title: String,
     pub message: Element,
-    pub at: std::time::Instant,
 }
 
 pub static TOASTS: GlobalSignal<Vec<Toast>> = Signal::global(Vec::new);
 
 pub fn toast(title: String, message: Element) {
-    TOASTS.with_mut(|t| {
-        t.push(Toast {
-            title,
-            message,
-            at: std::time::Instant::now(),
-        })
-    });
+    TOASTS.with_mut(|t| t.push(Toast { title, message }));
 }
 
 fn main() {
@@ -72,6 +65,20 @@ pub enum Route {
 
 #[component]
 fn App() -> Element {
+    let mut update_user = use_action(move || async move {
+        if let Ok(usr) = api::get_user().await {
+            (*USER.write()) = Some(usr);
+        } else {
+            (*USER.write()) = None;
+        }
+
+        Ok(()) as Result<(), ServerFnError>
+    });
+
+    use_effect(move || {
+        update_user.call();
+    });
+
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
@@ -156,26 +163,29 @@ fn Navbar() -> Element {
 
 #[component]
 pub fn Toaster() -> Element {
-    use_resource(move || async move {
-        loop {
-            let now = std::time::Instant::now();
-
-            TOASTS.with_mut(|t| {
-                t.retain(|toast| now.duration_since(toast.at) < std::time::Duration::from_secs(5));
-            });
-
-            time_sleep(100).await;
-        }
-    });
-
     rsx! {
         div { class: "fixed bottom-4 left-4 flex flex-col gap-2 z-50",
             for toast in TOASTS() {
-                div { class: "bg-neutral-700 text-white p-4 rounded shadow-lg border border-neutral-500",
-                    h3 { class: "font-bold", "{toast.title}" }
-                    {toast.message}
-                }
+                ToastE { toast }
             }
+        }
+    }
+}
+
+#[component]
+fn ToastE(toast: Toast) -> Element {
+    let timer = dioxus_sdk_time::use_timeout(std::time::Duration::from_secs(5), move |()| {
+        TOASTS.with_mut(|t| t.remove(0));
+    });
+
+    use_effect(move || {
+        timer.action(());
+    });
+
+    rsx! {
+        div { class: "bg-neutral-700 text-white p-4 rounded shadow-lg border border-neutral-500",
+            h3 { class: "font-bold", "{toast.title}" }
+            {toast.message}
         }
     }
 }
@@ -200,6 +210,14 @@ fn AuthLayout() -> Element {
     let route = use_route::<Route>();
 
     let is_login = matches!(route, Route::Login {});
+
+    let navigator = use_navigator();
+
+    use_effect(move || {
+        if USER().is_some() {
+            navigator.replace(NavigationTarget::Internal(Route::Saves {}));
+        }
+    });
 
     rsx! {
         div { class: "flex flex-col items-center mt-10",
@@ -288,7 +306,7 @@ fn Login() -> Element {
                 input {
                     r#type: "submit",
                     class: "rounded bg-white text-black px-4 py-2 cursor-pointer",
-                    "Login"
+                    value: "Login"
                 }
             }
         }
@@ -371,7 +389,7 @@ fn Register() -> Element {
                 input {
                     r#type: "submit",
                     class: "rounded bg-white text-black px-4 py-2 cursor-pointer",
-                    "Submit"
+                    value: "Register"
                 }
             }
         }

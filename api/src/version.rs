@@ -17,7 +17,7 @@ pub struct Version {
     pub save_id: SaveId,
     pub version: i32,
     pub label: String,
-    pub timestamp: std::time::SystemTime,
+    pub timestamp: i32,
     pub by: UserPreview,
 }
 
@@ -69,7 +69,7 @@ pub async fn get_save_versions(save_id: SaveId) -> Result<Vec<Version>, ServerFn
             save_id: v.save_id,
             version: v.version,
             label: v.label,
-            timestamp: std::time::UNIX_EPOCH + std::time::Duration::from_secs(v.timestamp as u64),
+            timestamp: v.timestamp,
             by: UserPreview {
                 id: v.user_id,
                 username: v.username,
@@ -110,7 +110,7 @@ pub async fn get_version_details(save_id: i32, version_id: i32) -> Result<Versio
         save_id: version.save_id,
         version: version.version,
         label: version.label,
-        timestamp: std::time::UNIX_EPOCH + std::time::Duration::from_secs(version.timestamp as u64),
+        timestamp: version.timestamp,
         by: UserPreview {
             id: version.user_id,
             username: version.username,
@@ -237,7 +237,7 @@ pub async fn create_version(
     use std::io::Write;
 
     zip.start_file(file_name, options);
-    zip.write(&file_bytes);
+    zip.write_all(&file_bytes);
     zip.finish();
 
     Ok(Version {
@@ -245,7 +245,7 @@ pub async fn create_version(
         save_id: version.save_id,
         version: version.version,
         label: version.label,
-        timestamp: std::time::UNIX_EPOCH + std::time::Duration::from_secs(version.timestamp as u64),
+        timestamp: version.timestamp,
         by: UserPreview {
             id: version.user_id,
             username: version.username,
@@ -325,11 +325,20 @@ pub async fn delete_version(save_id: i32, version_id: i32) -> Result<(), ServerF
     Ok(())
 }
 
-#[get("/api/save/{save_id}/{version_id}/download", auth: crate::auth::Session, db: crate::ServerDb)]
-pub async fn download_version(
+struct VersionFile {
+    pub save_name: String,
+    pub game: crate::Game,
+    pub version: i32,
+    pub path: String,
+}
+
+#[cfg(feature = "server")]
+async fn get_version_file(
     save_id: i32,
     version_id: i32,
-) -> Result<dioxus_fullstack::FileStream, ServerFnError> {
+    auth: &crate::auth::Session,
+    db: &crate::ServerDb,
+) -> Result<VersionFile, ServerFnError> {
     let user = auth.require_user()?;
 
     if query_user_save_access(user.id, save_id, &db.0)
@@ -349,7 +358,7 @@ pub async fn download_version(
         name: String,
         game: crate::Game,
         version: i32,
-    };
+    }
 
     let SaveIdentRow { name, game, version } =
         sqlx::query_as::<_, SaveIdentRow>("SELECT s.name, s.game, v.version FROM saves s JOIN versions v ON s.id = v.save_id WHERE s.id = $1 AND v.id = $2")
@@ -371,7 +380,22 @@ pub async fn download_version(
         user.username, game, name, version
     );
 
-    Ok(dioxus::fullstack::FileStream::from_path(file_path)
+    Ok(VersionFile {
+        save_name: name,
+        game: game,
+        version,
+        path: file_path,
+    })
+}
+
+#[get("/api/save/{save_id}/{version_id}/stream", auth: crate::auth::Session, db: crate::ServerDb)]
+pub async fn download_version(
+    save_id: i32,
+    version_id: i32,
+) -> Result<dioxus_fullstack::FileStream, ServerFnError> {
+    let file_path = get_version_file(save_id, version_id, &auth, &db).await?;
+
+    Ok(dioxus::fullstack::FileStream::from_path(file_path.path)
         .await
         .map_err(|e| {
             error!("Failed to create file stream: {e:?}");
@@ -381,4 +405,44 @@ pub async fn download_version(
                 details: None,
             }
         })?)
+}
+
+#[get("/api/save/{save_id}/{version_id}/download", auth: crate::auth::Session, db: crate::ServerDb)]
+pub async fn download_version_file(
+    save_id: i32,
+    version_id: i32,
+) -> Result<dioxus_fullstack::response::Response, ServerFnError> {
+    use axum::http::header;
+    use axum::response::IntoResponse;
+    use tokio_util::io::ReaderStream;
+
+    let file_path = get_version_file(save_id, version_id, &auth, &db).await?;
+
+    let file = tokio::fs::File::open(file_path.path).await.map_err(|e| {
+        error!("Failed to create file stream: {e:?}");
+        ServerFnError::ServerError {
+            message: "Internal server error".to_string(),
+            code: 500,
+            details: None,
+        }
+    })?;
+
+    let stream = ReaderStream::new(file);
+
+    let body = axum::body::Body::from_stream(stream);
+
+    let file_name = format!(
+        "{:?}_{}_v{}",
+        file_path.game, file_path.save_name, file_path.version
+    );
+
+    let headers = [
+        (header::CONTENT_TYPE, "application/zip".to_string()),
+        (
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", file_name),
+        ),
+    ];
+
+    Ok((headers, body).into_response())
 }

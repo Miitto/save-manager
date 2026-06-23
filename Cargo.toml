@@ -16,20 +16,21 @@ dioxus = "0.7.1"
 log = "0.4.32"
 serde = "1.0.228"
 zip = { version = "8.6.0", default-features = false, features = [
-    # "aes-crypto",
-    # "bzip2",
-    # "xz",
-    "deflate",
-    "deflate64",
-    "lzma",
-    "time",
-    "zstd",
+  # "aes-crypto",
+  # "bzip2",
+  # "xz",
+  "deflate",
+  "deflate64",
+  "lzma",
+  "time",
+  "zstd",
 ] }
 
 [dependencies]
 api = { path = "api" }
 chrono = "0.4.45"
 dioxus = { workspace = true, features = ["fullstack", "router"] }
+dioxus-sdk-time = "0.7.0"
 futures = "0.3.32"
 gloo-timers = { version = "0.4.0", optional = true, features = ["futures"] }
 js-sys = { version = "0.3.102", optional = true }

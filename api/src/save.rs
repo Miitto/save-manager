@@ -20,39 +20,14 @@ impl Game {
 pub type SaveId = i32;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "server", derive(sqlx::FromRow))]
 pub struct Save {
     pub id: SaveId,
     pub name: String,
     pub game: Game,
     pub owner: crate::UserId,
     pub version_count: i32,
-    pub most_recent_version: Option<std::time::SystemTime>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "server", derive(sqlx::FromRow))]
-pub struct DbSave {
-    pub id: SaveId,
-    pub name: String,
-    pub game: Game,
-    pub owner: crate::UserId,
-    pub version_count: i32,
     pub most_recent_version: Option<i32>,
-}
-
-impl DbSave {
-    pub fn to_save(&self) -> Save {
-        Save {
-            id: self.id,
-            name: self.name.clone(),
-            game: self.game,
-            owner: self.owner,
-            version_count: self.version_count,
-            most_recent_version: self
-                .most_recent_version
-                .map(|ts| std::time::UNIX_EPOCH + std::time::Duration::from_secs(ts as u64)),
-        }
-    }
 }
 
 pub type VersionId = i32;
@@ -124,7 +99,7 @@ pub async fn get_user_saves(user_id: crate::UserId) -> Result<Vec<Save>, ServerF
         .into());
     }
 
-    let saves = sqlx::query_as::<_, DbSave>(
+    let saves = sqlx::query_as::<_, Save>(
         "SELECT s.id, s.name, s.game, s.owner, COUNT(v.id) as version_count, MAX(v.timestamp) as most_recent_version FROM saves s LEFT JOIN versions v ON s.id = v.save_id LEFT JOIN user_save_access usa ON s.id = usa.save_id WHERE (usa.user_id = $1 OR s.owner = $1) GROUP BY s.id;",
     )
     .bind(user_id)
@@ -139,7 +114,7 @@ pub async fn get_user_saves(user_id: crate::UserId) -> Result<Vec<Save>, ServerF
         }
     })?;
 
-    Ok(saves.into_iter().map(|s| s.to_save()).collect())
+    Ok(saves.into_iter().collect())
 }
 
 #[cfg(feature = "server")]
@@ -267,7 +242,7 @@ pub async fn get_save_details(save_id: SaveId) -> Result<Save, ServerFnError> {
     }
 
     let save =
-        sqlx::query_as::<_, DbSave>("SELECT s.id, s.name, s.game, s.owner, COUNT(v.id) as version_count, MAX(v.timestamp) as most_recent_version FROM saves s LEFT JOIN versions v ON v.save_id = s.id WHERE s.id = $1 GROUP BY s.id;")
+        sqlx::query_as::<_, Save>("SELECT s.id, s.name, s.game, s.owner, COUNT(v.id) as version_count, MAX(v.timestamp) as most_recent_version FROM saves s LEFT JOIN versions v ON v.save_id = s.id WHERE s.id = $1 GROUP BY s.id;")
             .bind(save_id)
             .fetch_one(&db.0).await.map_err(|e| {
                 error!("Database error while fetching save details: {}", e);
@@ -278,7 +253,7 @@ pub async fn get_save_details(save_id: SaveId) -> Result<Save, ServerFnError> {
                 }
     })?;
 
-    Ok(save.to_save())
+    Ok(save)
 }
 
 #[post("/api/save/{save_id}/name", auth: crate::auth::Session, db: crate::ServerDb)]
