@@ -240,7 +240,7 @@ fn AuthLayout() -> Element {
     });
 
     use_effect(move || {
-        if update_user.value().is_some() && USER().is_none() {
+        if update_user.value().is_some() && USER().is_some() {
             warn!("User is logged in, redirecting to home page");
             navigator.replace(Route::Saves {});
         }
@@ -273,8 +273,6 @@ fn AuthLayout() -> Element {
 fn Login() -> Element {
     let mut username = use_signal(String::new);
     let mut password = use_signal(String::new);
-
-    let navigator = use_navigator();
 
     let mut login_user = use_action(move || async move {
         let usr = match api::login(username(), password()).await {
