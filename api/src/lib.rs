@@ -166,6 +166,7 @@ pub fn launch_server(
     };
     use std::str::FromStr;
 
+    #[cfg(debug_assertions)]
     dioxus::logger::init(Level::DEBUG).expect("Failed to initialize logger");
 
     std::fs::create_dir_all("./saves/").expect("Failed to create saves directory");
