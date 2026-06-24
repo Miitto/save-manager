@@ -241,8 +241,8 @@ fn AuthLayout() -> Element {
 
     use_effect(move || {
         if update_user.value().is_some() && USER().is_none() {
-            warn!("User is not logged in, redirecting to login page");
-            navigator.replace(Route::Login {});
+            warn!("User is logged in, redirecting to home page");
+            navigator.replace(Route::Saves {});
         }
     });
 
