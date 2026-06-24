@@ -32,6 +32,7 @@ chrono = "0.4.45"
 dioxus = { workspace = true, features = ["fullstack", "router"] }
 dioxus-cookie = "0.2.0"
 dioxus-sdk-time = "0.7.0"
+directories = "6.0.0"
 futures = "0.3.32"
 log.workspace = true
 serde.workspace = true

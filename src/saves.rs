@@ -57,12 +57,12 @@ pub fn Saves() -> Element {
                     };
 
                     if name.contains('/') || name.contains('\\') {
-                        crate::toast("Invalid Save Name".to_string(), rsx! {
-                            p { "Save name cannot contain '/' or '\\' characters." }
-                        });
+                        crate::toast_error(
+                            "Invalid Save Name",
+                            "Save name cannot contain '/' or '\\' characters.",
+                        );
                         return;
                     }
-
                     if let Err(e) = api::create_save(name, game).await {
                         debug!("Error creating save: {:?}", e);
                     } else {
@@ -72,18 +72,13 @@ pub fn Saves() -> Element {
                 },
                 label { r#for: "save_name", "Name" }
                 input {
-                    class: crate::INPUT_CLASS,
                     id: "save_name",
                     name: "save_name",
                     required: true,
                     placeholder: "Save Name",
                 }
                 label { r#for: "save_game", "Game" }
-                select {
-                    required: true,
-                    name: "save_game",
-                    id: "save_game",
-                    class: crate::INPUT_CLASS,
+                select { required: true, name: "save_game", id: "save_game",
                     for game in api::Game::iter() {
                         option { value: game as i32, "{game}" }
                     }
@@ -220,7 +215,7 @@ fn SaveList(saves: ReadSignal<Vec<api::Save>>) -> Element {
                             },
                             img { class: "invert", src: last_updated_sort_icon }
                         }
-                    
+
                     }
                     span { "Versions" }
                 }
