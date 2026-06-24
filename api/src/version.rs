@@ -369,10 +369,11 @@ async fn get_version_file(
         name: String,
         game: crate::Game,
         version: i32,
+        username: String,
     }
 
-    let SaveIdentRow { name, game, version } =
-        sqlx::query_as::<_, SaveIdentRow>("SELECT s.name, s.game, v.version FROM saves s JOIN versions v ON s.id = v.save_id WHERE s.id = $1 AND v.id = $2")
+    let SaveIdentRow { name, game, version, username } =
+        sqlx::query_as::<_, SaveIdentRow>("SELECT s.name, s.game, v.version, u.username FROM saves s LEFT JOIN versions v ON s.id = v.save_id LEFT JOIN users u ON u.id = s.owner WHERE s.id = $1 AND v.id = $2")
             .bind(save_id)
             .bind(version_id)
             .fetch_one(&db.0)
@@ -386,10 +387,7 @@ async fn get_version_file(
                 }
             })?;
 
-    let file_path = format!(
-        "./saves/{}/{:?}/{}/{}.zip",
-        user.username, game, name, version
-    );
+    let file_path = format!("./saves/{}/{:?}/{}/{}.zip", username, game, name, version);
 
     Ok(VersionFile {
         save_name: name,
