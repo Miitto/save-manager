@@ -5,32 +5,8 @@ mod components;
 mod saves;
 mod versions;
 
-pub use components::*;
-
 #[cfg(feature = "desktop")]
-mod file_management;
-
-pub mod icons {
-    use dioxus::prelude::*;
-
-    pub const TRASH: Asset = asset!("/assets/trash-2.svg");
-    pub const DOWNLOAD: Asset = asset!("/assets/download.svg");
-    #[cfg(feature = "desktop")]
-    pub const INSTALL: Asset = asset!("/assets/hard-drive-download.svg");
-    pub const CIRCLE_PLUS: Asset = asset!("/assets/circle-plus.svg");
-    pub const CIRCLE_CHECK: Asset = asset!("/assets/circle-check-big.svg");
-    pub const CIRCLE_X: Asset = asset!("/assets/circle-x.svg");
-    pub const INFO: Asset = asset!("/assets/info.svg");
-
-    pub const CHEVRON_DOWN: Asset = asset!("/assets/chevron-down.svg");
-    pub const CHEVRON_UP: Asset = asset!("/assets/chevron-up.svg");
-    pub const CHEVRON_UP_DOWN: Asset = asset!("/assets/chevrons-up-down.svg");
-
-    pub const USER_KEY: Asset = asset!("/assets/user-key.svg");
-
-    pub const EYE: Asset = asset!("/assets/eye.svg");
-    pub const PENCIL: Asset = asset!("/assets/pencil.svg");
-}
+mod desktop;
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
@@ -42,6 +18,20 @@ const DEFAULT_SERVER_URL: &str = "https://saves.miitto.dev";
 
 #[cfg(not(debug_assertions))]
 static SERVER_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub mod icons {
+    pub use dioxus_icons::IconSize;
+    pub use dioxus_icons::lucide::*;
+}
+
+pub mod prelude {
+    pub(crate) use crate::components::*;
+    pub use crate::{USER, icons, icons::IconSize};
+    pub use dioxus::prelude::*;
+    pub use dioxus_primitives::toast::{ToastOptions, use_toast};
+}
+
+use prelude::*;
 
 fn main() {
     dioxus_cookie::init();
@@ -86,7 +76,7 @@ use versions::SaveDetails;
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
 pub enum Route {
-    #[layout(Navbar)]
+    #[layout(Nav)]
         #[route("/")]
         Saves {},
         #[route("/save/:id")]
@@ -104,20 +94,20 @@ fn App() -> Element {
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
-        Router::<Route> {}
-        Toaster {}
+
+        ToastProvider { Router::<Route> {} }
     }
 }
 
 #[component]
 fn UserDropdown(user: api::UserPreview) -> Element {
     rsx! {
-        div { class: "flex items-center group h-10 w-fit px-4 relative",
+        div { class: "flex items-center group h-10 w-fit px-4 relative z-50",
             span { class: "text-white", "{user.username}" }
 
             div { class: "hidden group-hover:block absolute right-0 top-full bg-neutral-700 rounded shadow-lg border border-neutral-500",
-                button {
-                    class: "px-4 py-2 cursor-pointer hover:underline",
+                Button {
+                    variant: ButtonVariant::Ghost,
                     onclick: move |_| async move {
                         if let Err(e) = api::logout().await {
                             error!("Error logging out: {}", e);
@@ -133,15 +123,9 @@ fn UserDropdown(user: api::UserPreview) -> Element {
 
 /// Shared navbar component.
 #[component]
-fn Navbar() -> Element {
+fn Nav() -> Element {
     let navigator = use_navigator();
-    let user_rsx = if let Some(user) = USER() {
-        rsx! {
-            UserDropdown { user }
-        }
-    } else {
-        rsx! {}
-    };
+    let user_rsx = USER().map(|u| rsx! { "{u.username}" });
 
     let mut update_user = use_action(move || async move {
         if let Ok(usr) = api::get_user().await {
@@ -165,17 +149,32 @@ fn Navbar() -> Element {
     });
 
     rsx! {
-        div { class: "flex justify-between items-center h-10
-         bg-neutral-900 text-white",
-            div { id: "navbar w-fit h-10",
-                Link {
-                    class: "px-4 h-10 flex items-center hover:underline",
+        div {
+            Navbar { class: "justify-between",
+                NavbarItem {
+                    index: 0usize,
+                    value: "saves".to_string(),
                     to: Route::Saves {},
-                    span { "Saves" }
+                    "Saves"
+                }
+                NavbarNav { index: 1usize,
+                    NavbarTrigger { {user_rsx} }
+                    NavbarContent { "data-float": "right",
+                        NavbarItem {
+                            index: 0usize,
+                            value: "logout".to_string(),
+                            to: Route::Login {},
+                            onclick: move |_| async move {
+                                if let Err(e) = api::logout().await {
+                                    error!("Error logging out: {}", e);
+                                }
+                                (*USER.write()) = None;
+                            },
+                            "Logout"
+                        }
+                    }
                 }
             }
-
-            {user_rsx}
         }
 
         Outlet::<Route> {}

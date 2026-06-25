@@ -1,8 +1,6 @@
-use dioxus::prelude::*;
+use crate::prelude::*;
 
-use crate::ConfirmDialog;
-
-use super::{SaveName, VersionProvider};
+use super::VersionProvider;
 
 #[component]
 pub fn VersionList(versions: Store<Vec<api::Version>>, modify: ReadSignal<bool>) -> Element {
@@ -17,8 +15,8 @@ pub fn VersionList(versions: Store<Vec<api::Version>>, modify: ReadSignal<bool>)
     rsx! {
         div {
             style: "grid-template-columns: 1fr auto auto auto auto{cols}{INSTALL_COL};",
-            class: "grid gap-x-4 border-b border-neutral-500 mb-2",
-            div { class: "font-bold grid grid-cols-subgrid col-span-full px-4 py-2 border-b border-neutral-500",
+            class: "grid gap-x-4 border-b border-border mb-2",
+            div { class: "font-bold grid grid-cols-subgrid col-span-full px-4 py-2 border-b border-border",
                 span { "Label" }
                 span { class: "text-center", "Version" }
                 span { class: "text-center", "Timestamp" }
@@ -58,44 +56,51 @@ pub fn VersionRow(version: ReadSignal<api::Version>, modify: ReadSignal<bool>) -
             DownloadButton { version }
             InstallButton { version }
             if modify() {
-                button {
+                Button {
                     title: "Delete",
-                    class: "bg-red-300 hover:bg-red-400 hover:cursor-pointer rounded w-8 h-8 flex justify-center items-center",
+                    variant: ButtonVariant::Destructive,
+                    size: ButtonSize::Icon,
                     onclick: move |_| {
                         delete_open.set(true);
                     },
-                    img { src: crate::icons::TRASH }
+
+                    icons::Trash2 {}
                 }
             }
         }
 
         if delete_open() {
-            ConfirmDialog {
-                title: "Delete Version".to_string(),
-                message: format!(
-                    "Are you sure you want to delete version {} (\"{}\")?",
-                    version().version,
-                    version().label,
-                ),
-                on_confirm: move |_| {
-                    delete_version.call();
+            AlertDialog {
+                open: delete_open(),
+                on_open_change: move |open| {
+                    delete_open.set(open);
                 },
-                open: delete_open,
+                AlertDialogTitle { "Delete Version" }
+                AlertDialogDescription {
+                    "Are you sure you want to delete version {version().version} (\"{version().label}\")?"
+                }
+                AlertDialogActions {
+                    AlertDialogCancel { "Cancel" }
+                    AlertDialogAction {
+                        on_click: move |_| {
+                            delete_version.call();
+                        },
+                        "Delete"
+                    }
+                }
             }
         }
     }
 }
-
-const DOWNLOAD_CLASS: &str = "bg-cyan-400 hover:bg-teal-300 hover:cursor-pointer rounded w-8 h-8 flex justify-center items-center";
 
 #[cfg(not(feature = "desktop"))]
 #[component]
 fn DownloadButton(version: ReadSignal<api::Version>) -> Element {
     rsx! {
         Link {
-            class: DOWNLOAD_CLASS,
+            class: "dx-button",
             to: format!("/api/save/{}/{}/download", version().save_id, version().id),
-            img { src: crate::icons::DOWNLOAD }
+            icons::Download {}
         }
     }
 }
@@ -103,48 +108,49 @@ fn DownloadButton(version: ReadSignal<api::Version>) -> Element {
 #[cfg(feature = "desktop")]
 #[component]
 fn DownloadButton(version: ReadSignal<api::Version>) -> Element {
-    let save_name = use_context::<Signal<SaveName>>();
+    use dioxus_primitives::toast::ToastOptions;
+
+    let toast_api = use_toast();
+    let save = use_context::<Signal<api::Save>>();
 
     rsx! {
-        button {
+        Button {
             title: "Download",
-            class: DOWNLOAD_CLASS,
+            size: ButtonSize::Icon,
             onclick: move |_| {
                 let version = version.peek().clone();
                 async move {
                     #[cfg(feature = "desktop")]
                     {
-                        let name = save_name.peek().name.clone();
-                        match crate::file_management::download_version(&name, &version)
+                        let name = save.peek().name.clone();
+                        match crate::desktop::download_version(&name, &version)
                             .await
                         {
                             Ok(path) => {
-                                crate::toast_success(
-                                    "Download Complete".to_string(),
-                                    rsx! {
-                                        p { "Version {version.version} downloaded successfully." }
-                                        button {
-                                            class: "underline cursor-pointer",
-                                            onclick: move |_| {
-                                                use crate::file_management::ExplorerView;
-                                                path.select_file();
-                                            },
-                                            "View in Explorer"
-                                        }
-                                    },
-                                );
+                                toast_api
+                                    .success(
+                                        "Download Complete".to_string(),
+                                        ToastOptions::new()
+                                            .description(
+                                                format!("Version downloaded to {}", path.display()),
+                                            ),
+                                    );
                             }
                             Err(_) => {
-                                crate::toast_error(
-                                    "Download Failed".to_string(),
-                                    format!("Failed to download version {}.", version.version),
-                                );
+                                toast_api
+                                    .error(
+                                        "Download Failed".to_string(),
+                                        ToastOptions::new()
+                                            .description(
+                                                "Failed to download version. Please try again.".to_string(),
+                                            ),
+                                    );
                             }
                         }
                     }
                 }
             },
-            img { src: crate::icons::DOWNLOAD }
+            icons::Download {}
         }
     }
 }
@@ -158,16 +164,21 @@ fn InstallButton(version: ReadSignal<api::Version>) -> Element {
 #[cfg(feature = "desktop")]
 #[component]
 fn InstallButton(version: ReadSignal<api::Version>) -> Element {
+    let toast_api = use_toast();
+
     rsx! {
-        button {
+        Button {
             title: "Deploy",
-            class: "bg-yellow-300 hover:bg-yellow-200 hover:cursor-pointer rounded w-8 h-8 flex justify-center items-center",
+            size: ButtonSize::Icon,
             onclick: move |_| {
-                crate::toast_error("WIP", rsx! {
-                    p { "Deploying versions is not yet implemented." }
-                });
+                toast_api
+                    .error(
+                        "WIP".to_string(),
+                        ToastOptions::new()
+                            .description("Deploying is not yet implemented.".to_string()),
+                    );
             },
-            img { src: crate::icons::INSTALL }
+            icons::HardDriveDownload {}
         }
     }
 }

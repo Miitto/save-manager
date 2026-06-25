@@ -1,30 +1,23 @@
-use crate::{ConfirmDialog, Dialog, USER};
+use crate::prelude::*;
 use api::UserAccessExt;
-use dioxus::prelude::*;
 
 mod list;
 use list::VersionList;
 
 type VersionProvider = Resource<Result<Vec<api::Version>, ServerFnError>>;
 
-struct SaveName {
-    name: String,
-}
-
 #[component]
 pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
-    let save = use_server_future(move || api::get_save_details(id()))?().unwrap();
+    let save_res = use_server_future(move || api::get_save_details(id()))?;
+    let save_r = save_res().ok_or(anyhow::anyhow!("Failed to load save details"))??;
+    let save = use_signal(|| save_r);
     let save_versions_res = use_server_future(move || api::get_save_versions(id()))?;
 
     use_context_provider::<VersionProvider>(|| save_versions_res);
 
     let save_version_list = save_versions_res().unwrap().map(|l| use_store(|| l));
 
-    let mut save_name = use_signal(|| SaveName {
-        name: String::default(),
-    });
-
-    use_context_provider(|| save_name);
+    use_context_provider(|| save);
 
     let modify = use_server_future(move || {
         _ = USER();
@@ -54,63 +47,65 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
 
     let nav = use_navigator();
 
-    match save {
-        Ok(save) => {
-            save_name.write().name = save.name.clone();
-            rsx! {
-                document::Title { "{save.name}" }
+    rsx! {
+        document::Title { "{save().name}" }
 
-                div { class: "flex flex-col",
-                    div { class: "flex flex-row justify-between items-center p-4",
-                        h1 { class: "text-4xl font-bold", "{save.name}" }
-                        div { class: "flex flex-row gap-2 items-center",
-                            p {
-                                span { class: "font-bold", "{count}" }
-                                " version(s)"
-                            }
-                            button {
-                                class: "flex items-center justify-center w-8 h-8 rounded bg-blue-300 hover:bg-blue-400 cursor-pointer",
-                                onclick: move |_| {
-                                    save_access_open.set(true);
-                                },
-                                img { src: crate::icons::USER_KEY }
-                            }
-
-                            if USER().is_some_and(|u| u.id == save.owner) {
-                                button {
-                                    class: "flex items-center justify-center w-8 h-8 rounded bg-red-300 hover:bg-red-400 cursor-pointer",
-                                    onclick: move |_| {
-                                        delete_save_open.set(true);
-                                    },
-                                    img { src: crate::icons::TRASH }
-                                }
-                            }
-                        }
+        div { class: "flex flex-col",
+            div { class: "flex flex-row justify-between items-center p-4",
+                h1 { class: "text-4xl font-bold", "{save().name}" }
+                div { class: "flex flex-row gap-2 items-center",
+                    p {
+                        span { class: "font-bold", "{count}" }
+                        " version(s)"
+                    }
+                    Button {
+                        size: ButtonSize::Icon,
+                        onclick: move |_| {
+                            save_access_open.set(true);
+                        },
+                        icons::UserKey {}
                     }
 
-                    hr { class: "my-1" }
-
-                    {save_versions}
-
-                    if modify {
-                        button {
-                            class: "fixed bottom-4 right-4 w-12 h-12 rounded-full bg-emerald-400 hover:bg-green-300 flex items-center justify-center cursor-pointer",
-                            onclick: move |_| new_version_open.set(true),
-                            img { src: crate::icons::CIRCLE_PLUS }
+                    if USER().is_some_and(|u| u.id == save().owner) {
+                        Button {
+                            variant: ButtonVariant::Destructive,
+                            size: ButtonSize::Icon,
+                            onclick: move |_| {
+                                delete_save_open.set(true);
+                            },
+                            icons::Trash2 {}
                         }
                     }
+                }
+            }
 
-                    NewVersionDialog { id, new_version_open, save_versions_res }
+            Separator {}
 
-                    SaveAccessDialog { id, save_access_open, owner: save.owner }
+            {save_versions}
 
-                    if USER().is_some_and(|u| u.id == save.owner) {
-                        ConfirmDialog {
-                            open: delete_save_open,
-                            title: "Delete Save".to_string(),
-                            message: "Are you sure you want to delete this save? This action cannot be undone."
-                                .to_string(),
-                            on_confirm: move |_| {
+            if modify {
+                Button {
+                    size: ButtonSize::IconLg,
+                    class: "fixed bottom-4 right-4",
+                    onclick: move |_| new_version_open.set(true),
+                    icons::CirclePlus {}
+                }
+            }
+
+            NewVersionDialog { id, new_version_open, save_versions_res }
+
+            SaveAccessDialog { id, save_access_open, owner: save().owner }
+
+            if USER().is_some_and(|u| u.id == save().owner) {
+                AlertDialog {
+                    open: delete_save_open(),
+                    on_open_change: move |open| delete_save_open.set(open),
+                    AlertDialogTitle { "Delete Save" }
+                    AlertDialogDescription { "Are you sure you want to delete this save? This action cannot be undone." }
+                    AlertDialogActions {
+                        AlertDialogCancel { "Cancel" }
+                        AlertDialogAction {
+                            on_click: move |_| {
                                 async move {
                                     if let Err(e) = api::delete_save(id()).await {
                                         error!("Failed to delete save: {e}");
@@ -118,17 +113,12 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
                                     nav.replace(crate::Route::Saves {});
                                 }
                             },
+                            "Delete"
                         }
                     }
                 }
             }
         }
-        Err(e) => rsx! {
-            div { class: "p-4",
-                h2 { "Error loading save details" }
-                p { "{e}" }
-            }
-        },
     }
 }
 
@@ -138,11 +128,16 @@ fn NewVersionDialog(
     new_version_open: Signal<bool>,
     save_versions_res: VersionProvider,
 ) -> Element {
+    let toast_api = use_toast();
+
     rsx! {
-        Dialog { open: new_version_open,
+        Dialog {
+            open: new_version_open(),
+            on_open_change: move |open| new_version_open.set(open),
+            class: "min-w-max",
             h2 { class: "text-2xl font-bold", "New Version" }
 
-            hr { class: "my-2" }
+            Separator {}
 
             form {
                 class: "flex flex-col gap-4",
@@ -157,10 +152,14 @@ fn NewVersionDialog(
                     };
 
                     if name.contains('/') || name.contains('\\') {
-                        crate::toast_error(
-                            "Invalid Version Label",
-                            "Version label cannot contain '/' or '\\' characters.",
-                        );
+                        toast_api
+                            .error(
+                                "Invalid Version Label".to_string(),
+                                ToastOptions::new()
+                                    .description(
+                                        "Version label cannot contain '/' or '\\' characters.",
+                                    ),
+                            );
                         return;
                     }
                     if let Err(e) = api::create_version(id(), e.into()).await {
@@ -170,9 +169,9 @@ fn NewVersionDialog(
                     new_version_open.set(false);
                 },
 
-                input { placeholder: "Label", name: "label", required: true }
+                Input { placeholder: "Label", name: "label", required: true }
 
-                input {
+                Input {
                     placeholder: "File",
                     name: "file",
                     multiple: false,
@@ -182,18 +181,17 @@ fn NewVersionDialog(
 
                 div { class: "flex flex-row justify-between",
 
-                    button {
-                        class: "px-4 py-2 bg-gray-400 rounded cursor-pointer hover:bg-gray-500",
-                        onclick: move |e| {
+                    Button {
+                        variant: ButtonVariant::Secondary,
+                        size: ButtonSize::Lg,
+                        onclick: move |e: MouseEvent| {
                             e.prevent_default();
                             new_version_open.set(false);
                         },
                         "Cancel"
                     }
 
-                    button { class: "px-4 py-2 bg-emerald-400 rounded cursor-pointer hover:bg-green-300",
-                        "Create"
-                    }
+                    Button { size: ButtonSize::Lg, "Create" }
                 }
             }
         }
@@ -234,7 +232,10 @@ fn SaveAccessDialog(
         });
 
     rsx! {
-        Dialog { open: save_access_open, class: "{crate::DIALOG_CLASS} min-w-max",
+        Dialog {
+            open: save_access_open(),
+            on_open_change: move |open| save_access_open.set(open),
+            class: "min-w-max",
             div { class: "flex flex-row justify-between gap-8 items-top min-w-max",
                 h2 { class: "text-2xl font-bold", "Manage Access" }
                 if USER().is_some_and(|u| u.id == owner()) {
@@ -252,25 +253,20 @@ fn SaveAccessDialog(
 
                                 add_new_access.call(username).await
                             },
-                            input {
+                            Input {
                                 placeholder: "Username",
                                 name: "username",
                                 required: true,
                             }
 
-                            button { class: "p-1 bg-emerald-300 rounded cursor-pointer hover:bg-green-200",
-                                img {
-                                    class: "w-6 h-6 ",
-                                    src: crate::icons::CIRCLE_PLUS,
-                                }
-                            }
+                            Button { size: ButtonSize::Icon, icons::CirclePlus {} }
                         }
                         {add_new_access_error}
                     }
                 }
             }
 
-            hr { class: "my-2" }
+            Separator {}
 
             SaveAccessList {
                 save_access_res,
@@ -294,9 +290,9 @@ fn SaveAccessList(
         rsx! {
             div { class: "grid grid-cols-subgrid col-span-full p-2 items-center",
                 span { "{a.owner.username}" }
-                span { class: "font-bold text-center", "Owner" }
+                span { class: "font-bold text-center col-span-2", "Owner" }
             }
-            hr { class: "col-span-full" }
+            Separator { class: "col-span-full" }
         }
     });
 
@@ -370,15 +366,11 @@ fn SaveAccessRow(
             span { "{access.user.username}" }
             span { class: "flex justify-center items-center",
                 if is_owner {
-                    button {
-                        title: "Toggle Access",
-                        class: "bg-blue-300 hover:bg-blue-400 cursor-pointer rounded w-8 h-8 flex justify-center items-center",
-                        img {
-                            src: match access.access {
-                                api::UserAccess::View => crate::icons::EYE,
-                                api::UserAccess::Edit => crate::icons::PENCIL,
-                                _ => unreachable!("Invalid access level for user: {:?}", access.access),
-                            },
+                    Button { title: "Current Access", size: ButtonSize::Icon,
+                        if matches!(access.access, api::UserAccess::View) {
+                            icons::Eye {}
+                        } else {
+                            icons::Pencil {}
                         }
                     }
                 } else {
@@ -386,14 +378,14 @@ fn SaveAccessRow(
                 }
             }
             if is_owner {
-                button {
+                Button {
+                    size: ButtonSize::Icon,
                     title: "Revoke Access",
-                    class: "bg-red-300 hover:bg-red-400 cursor-pointer rounded w-8 h-8 flex justify-center items-center",
-                    onclick: move |e| {
+                    onclick: move |e: MouseEvent| {
                         e.stop_propagation();
                         remove_access.call();
                     },
-                    img { src: crate::icons::TRASH }
+                    icons::Trash2 {}
                 }
             }
         }

@@ -32,7 +32,7 @@ pub fn AuthLayout() -> Element {
 
     rsx! {
         div { class: "flex flex-col items-center mt-10",
-            div { class: "flex flex-row container justify-center items-center text-2xl border rounded w-fit",
+            div { class: "flex flex-row container justify-center items-center text-2xl border border-border rounded w-fit",
                 Link { to: Route::Login {},
                     div {
                         class: if is_login { "bg-neutral-600 " },

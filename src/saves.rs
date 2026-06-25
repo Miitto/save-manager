@@ -1,9 +1,11 @@
-use dioxus::prelude::*;
+use crate::prelude::*;
 
 use crate::{Route, USER};
 
 #[component]
 pub fn Saves() -> Element {
+    let toast_api = use_toast();
+
     let mut saves_res = use_server_future(|| {
         _ = USER(); // Subscribe to the signal
         async move {
@@ -28,18 +30,22 @@ pub fn Saves() -> Element {
 
         SaveList { saves }
 
-        button {
-            class: "fixed bottom-4 right-4 w-12 h-12 rounded-full bg-emerald-400 hover:bg-green-300 flex items-center justify-center cursor-pointer",
+        Button {
+            size: ButtonSize::IconLg,
+            class: "fixed bottom-4 right-4",
             onclick: move |_| new_save_open.set(true),
-            img { src: crate::icons::CIRCLE_PLUS }
+            icons::CirclePlus {}
         }
 
-        crate::Dialog { open: new_save_open,
-            h2 { class: "text-2xl font-bold", "New Save" }
+        Dialog {
+            open: new_save_open(),
+            on_open_change: move |open| new_save_open.set(open),
+            DialogTitle { "New Save" }
 
-            hr { class: "my-2" }
+            Separator {}
+
             form {
-                class: "grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 p-4 items-center",
+                class: "grid grid-cols-1 gap-y-2 p-4 items-center",
                 onsubmit: move |e: FormEvent| async move {
                     e.prevent_default();
 
@@ -57,10 +63,12 @@ pub fn Saves() -> Element {
                     };
 
                     if name.contains('/') || name.contains('\\') {
-                        crate::toast_error(
-                            "Invalid Save Name",
-                            "Save name cannot contain '/' or '\\' characters.",
-                        );
+                        toast_api
+                            .error(
+                                "Invalid Save Name".to_string(),
+                                ToastOptions::new()
+                                    .description("Save name cannot contain '/' or '\\' characters."),
+                            );
                         return;
                     }
                     if let Err(e) = api::create_save(name, game).await {
@@ -70,34 +78,42 @@ pub fn Saves() -> Element {
                     }
                     saves_res.restart();
                 },
-                label { r#for: "save_name", "Name" }
-                input {
+                LabeledInput {
                     id: "save_name",
                     name: "save_name",
                     required: true,
                     placeholder: "Save Name",
+                    "Name"
                 }
-                label { r#for: "save_game", "Game" }
-                select { required: true, name: "save_game", id: "save_game",
-                    for game in api::Game::iter() {
-                        option { value: game as i32, "{game}" }
+                div { class: "flex flex-col gap-y-1",
+                    Label { html_for: "save_game", "Game" }
+                    Select::<api::Game> { name: "save_game", id: "save_game", width: "12rem",
+                        SelectGroup {
+                            SelectGroupLabel { "Games" }
+                            for game in api::Game::iter() {
+                                SelectOption::<api::Game> {
+                                    index: game as usize,
+                                    value: game,
+                                    text_value: "{game}",
+                                    "{game}"
+                                }
+                            }
+                        }
                     }
                 }
 
-                div { class: "flex flex-row justify-between col-span-full mt-4",
-
-                    button {
-                        class: "px-4 py-2 bg-gray-400 rounded cursor-pointer hover:bg-gray-500",
-                        onclick: move |e| {
+                div { class: "flex flex-row justify-between col-span-full mt-4 w-full",
+                    Button {
+                        variant: ButtonVariant::Secondary,
+                        size: ButtonSize::Lg,
+                        onclick: move |e: MouseEvent| {
                             e.prevent_default();
                             new_save_open.set(false);
                         },
                         "Cancel"
                     }
 
-                    button { class: "px-4 py-2 bg-emerald-400 rounded cursor-pointer hover:bg-green-300",
-                        "Create"
-                    }
+                    Button { size: ButtonSize::Lg, "Create" }
                 }
             }
         }
@@ -147,73 +163,76 @@ fn SaveList(saves: ReadSignal<Vec<api::Save>>) -> Element {
     });
 
     let name_sort_icon = match sorted_by() {
-        SortBy::NameAsc => crate::icons::CHEVRON_DOWN,
-        SortBy::NameDesc => crate::icons::CHEVRON_UP,
-        _ => crate::icons::CHEVRON_UP_DOWN,
+        SortBy::NameAsc => dioxus_icons::lucide::ChevronDown,
+        SortBy::NameDesc => dioxus_icons::lucide::ChevronUp,
+        _ => dioxus_icons::lucide::ChevronsUpDown,
     };
 
-    let button_sort_icon = match sorted_by() {
-        SortBy::GameAsc => crate::icons::CHEVRON_DOWN,
-        SortBy::GameDesc => crate::icons::CHEVRON_UP,
-        _ => crate::icons::CHEVRON_UP_DOWN,
+    let game_sort_icon = match sorted_by() {
+        SortBy::GameAsc => dioxus_icons::lucide::ChevronDown,
+        SortBy::GameDesc => dioxus_icons::lucide::ChevronUp,
+        _ => dioxus_icons::lucide::ChevronsUpDown,
     };
 
     let last_updated_sort_icon = match sorted_by() {
-        SortBy::LastUpdatedAsc => crate::icons::CHEVRON_UP,
-        SortBy::LastUpdatedDesc => crate::icons::CHEVRON_DOWN,
-        _ => crate::icons::CHEVRON_UP_DOWN,
+        SortBy::LastUpdatedAsc => dioxus_icons::lucide::ChevronUp,
+        SortBy::LastUpdatedDesc => dioxus_icons::lucide::ChevronDown,
+        _ => dioxus_icons::lucide::ChevronsUpDown,
     };
 
     rsx! {
         div { class: "flex flex-col gap-y-1 mt-2",
             div { class: "flex flex-row items-center justify-end px-2",
-                input {
-                    class: "px-2 py-1 rounded grow max-w-100 bg-neutral-800 text-white border border-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-500",
+                Input {
+                    class: "grow max-w-100",
                     placeholder: "Filter saves...",
                     value: "{filter()}",
-                    oninput: move |e| filter.set(e.value()),
+                    oninput: move |e: FormEvent| filter.set(e.value()),
                 }
             }
-            div { class: "grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-b border-neutral-500 mb-2 items-center",
-                div { class: "font-bold grid grid-cols-subgrid col-span-full px-4 py-2 border-b border-neutral-500",
+            div { class: "grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-b border-border mb-2 items-center",
+                div { class: "font-bold grid grid-cols-subgrid col-span-full px-4 py-2 border-b border-border",
                     div { class: "flex flex-row items-center gap-2",
                         span { "Name" }
-                        button {
-                            class: "text-white w-8 h-8 flex justify-center items-center cursor-pointer hover:bg-neutral-600 rounded",
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            size: ButtonSize::Icon,
                             onclick: move |_| {
                                 match sorted_by() {
                                     SortBy::NameAsc => sorted_by.set(SortBy::NameDesc),
                                     _ => sorted_by.set(SortBy::NameAsc),
                                 }
                             },
-                            img { class: "invert", src: name_sort_icon }
+                            name_sort_icon { size: 32 }
                         }
                     }
                     div { class: "flex flex-row items-center gap-2",
                         span { "Game" }
 
-                        button {
-                            class: "text-white w-8 h-8 flex justify-center items-center cursor-pointer hover:bg-neutral-600 rounded",
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            size: ButtonSize::Icon,
                             onclick: move |_| {
                                 match sorted_by() {
                                     SortBy::GameAsc => sorted_by.set(SortBy::GameDesc),
                                     _ => sorted_by.set(SortBy::GameAsc),
                                 }
                             },
-                            img { class: "invert", src: button_sort_icon }
+                            game_sort_icon {}
                         }
                     }
                     div { class: "flex flex-row items-center gap-2",
                         span { "Last Updated" }
-                        button {
-                            class: "text-white w-8 h-8 flex justify-center items-center cursor-pointer hover:bg-neutral-600 rounded",
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            size: ButtonSize::Icon,
                             onclick: move |_| {
                                 match sorted_by() {
                                     SortBy::LastUpdatedAsc => sorted_by.set(SortBy::LastUpdatedDesc),
                                     _ => sorted_by.set(SortBy::LastUpdatedAsc),
                                 }
                             },
-                            img { class: "invert", src: last_updated_sort_icon }
+                            last_updated_sort_icon {}
                         }
 
                     }

@@ -4,9 +4,10 @@ use dioxus::prelude::*;
 use crate::auth::RequireUser;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "server", derive(sqlx::Type))]
 pub enum Game {
+    #[default]
     IntoTheRadius2,
     Satisfactory,
 }
