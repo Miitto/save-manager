@@ -27,7 +27,7 @@ pub mod icons {
 pub mod prelude {
     pub(crate) use crate::components::*;
     pub use crate::{USER, icons, icons::IconSize};
-    pub use dioxus::prelude::*;
+    pub use dioxus::{fullstack::Loader, prelude::*};
     pub use dioxus_primitives::toast::{ToastOptions, use_toast};
 }
 
@@ -177,6 +177,8 @@ fn Nav() -> Element {
             }
         }
 
-        Outlet::<Route> {}
+        if USER().is_some() {
+            Outlet::<Route> {}
+        }
     }
 }

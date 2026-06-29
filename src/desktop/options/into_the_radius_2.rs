@@ -1,20 +1,14 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SaveType {
-    SinglePlayer(SaveSlots),
-    Coop(SaveSlots),
+use dioxus::stores::{self as dioxus_stores, Store};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Store, Default)]
+pub struct ItrOptions {
+    pub coop: bool,
+    pub slot: SaveSlots,
 }
 
-impl SaveType {
-    pub fn join_path(&self, path: &std::path::Path) -> std::path::PathBuf {
-        match self {
-            SaveType::SinglePlayer(slot) => path.join("Single").join(slot.name()),
-            SaveType::Coop(slot) => path.join("Coop").join(slot.name()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SaveSlots {
+    #[default]
     Slot1,
     Slot2,
     Slot3,

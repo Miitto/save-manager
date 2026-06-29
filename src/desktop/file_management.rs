@@ -41,11 +41,12 @@ pub async fn download_version(
     Ok(file_path)
 }
 
-#[derive(Debug, Clone)]
+use dioxus::stores as dioxus_stores;
+
+use crate::desktop::into_the_radius_2;
+#[derive(Debug, Clone, dioxus::stores::Store)]
 pub enum DeployOptions {
-    IntoTheRadius2 {
-        slot: super::options::into_the_radius_2::SaveType,
-    },
+    IntoTheRadius2(into_the_radius_2::ItrOptions),
     Satisfactory {},
 }
 
@@ -58,6 +59,20 @@ impl DeployOptions {
                 api::Game::IntoTheRadius2
             ) | (DeployOptions::Satisfactory {}, api::Game::Satisfactory)
         )
+    }
+}
+
+impl From<api::Game> for DeployOptions {
+    fn from(game: api::Game) -> Self {
+        match game {
+            api::Game::IntoTheRadius2 => {
+                DeployOptions::IntoTheRadius2(into_the_radius_2::ItrOptions {
+                    coop: false,
+                    slot: into_the_radius_2::SaveSlots::Slot1,
+                })
+            }
+            api::Game::Satisfactory => DeployOptions::Satisfactory {},
+        }
     }
 }
 
@@ -95,8 +110,9 @@ pub async fn deploy_version(
     let mut archive = zip::ZipArchive::new(file).expect("Failed to read zip file");
 
     match deploy_options {
-        DeployOptions::IntoTheRadius2 { slot } => {
-            let slot_path = slot.join_path(&save_dir);
+        DeployOptions::IntoTheRadius2(into_the_radius_2::ItrOptions { coop, slot }) => {
+            let subfolder = if coop { "Coop" } else { "Single" };
+            let slot_path = save_dir.join(subfolder).join(slot.name());
 
             let mut file = archive.by_index(0).expect("Bad save zip file");
 

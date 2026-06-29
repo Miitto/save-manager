@@ -7,7 +7,7 @@ mod options;
 pub use file_management::*;
 pub use options::*;
 
-mod dirs;
+pub mod dirs;
 
 pub trait ExplorerView {
     #[allow(dead_code)]

@@ -15,6 +15,8 @@ anyhow = "1.0.102"
 dioxus = "0.7.1"
 log = "0.4.32"
 serde = "1.0.228"
+tokio = { version = "1.52.3", features = ["full"] }
+tokio-util = { version = "0.7.18", features = ["io"] }
 zip = { version = "8.6.0", default-features = false, features = [
   # "aes-crypto",
   # "bzip2",
@@ -29,21 +31,36 @@ zip = { version = "8.6.0", default-features = false, features = [
 [dependencies]
 anyhow.workspace = true
 api = { path = "api" }
+bytes = { version = "1.12.0", optional = true }
 chrono = "0.4.45"
 dioxus = { workspace = true, features = ["fullstack", "router"] }
 dioxus-cookie = "0.2.0"
 dioxus-icons = { version = "0.1.0", default-features = false }
-dioxus-primitives = { git = "https://github.com/DioxusLabs/components", version = "0.0.1", default-features = false, features = ["router"] }
+dioxus-primitives = { git = "https://github.com/DioxusLabs/components", version = "0.0.1", default-features = false, features = [
+  "router",
+] }
 dioxus-sdk-time = "0.7.0"
 directories = "6.0.0"
 futures = "0.3.32"
+futures-util = { version = "0.3.32", optional = true }
 log.workspace = true
 serde.workspace = true
+tokio = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
 zip = { workspace = true, optional = true }
 
 [features]
 default = ["desktop"]
-desktop = ["api/desktop", "dep:zip", "dioxus-cookie/desktop", "dioxus/desktop"]
+desktop = [
+  "api/desktop",
+  "dep:bytes",
+  "dep:futures-util",
+  "dep:tokio",
+  "dep:tokio-util",
+  "dep:zip",
+  "dioxus-cookie/desktop",
+  "dioxus/desktop",
+]
 server = ["api/server", "dioxus-cookie/server", "dioxus/server"]
 web = ["dioxus/web"]
 

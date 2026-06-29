@@ -25,11 +25,11 @@ sqlx = { version = "0.9.0", optional = true, features = [
   "runtime-tokio",
   "sqlite",
 ] }
-tokio = { version = "1.52.3", optional = true, features = ["full"] }
+tokio = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
 tower = { version = "0.5.3", optional = true }
 tower-http = { version = "0.7", optional = true, features = ["auth", "cors"] }
 zip.workspace = true
-tokio-util = { version = "0.7.18", optional = true, features = ["io"] }
 
 [features]
 desktop = []
@@ -39,6 +39,7 @@ server = [
   "dep:axum_session",
   "dep:axum_session_auth",
   "dep:axum_session_sqlx",
+  "dep:bcrypt",
   "dep:http",
   "dep:sqlx",
   "dep:tokio",
@@ -46,5 +47,4 @@ server = [
   "dep:tower",
   "dep:tower-http",
   "dioxus/server",
-  "dep:bcrypt",
 ]

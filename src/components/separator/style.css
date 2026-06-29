@@ -1,6 +1,6 @@
 @layer components {
 .dx-separator {
-  background-color: var(--border);
+  background-color: var(--color-border);
 }
 
 .dx-separator[data-orientation="horizontal"] {

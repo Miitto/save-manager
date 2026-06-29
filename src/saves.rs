@@ -5,25 +5,17 @@ use crate::{Route, USER};
 #[component]
 pub fn Saves() -> Element {
     let toast_api = use_toast();
-
-    let mut saves_res = use_server_future(|| {
-        _ = USER(); // Subscribe to the signal
-        async move {
-            debug!("Getting saves for user: {:?}", USER());
-            if let Some(user) = USER() {
-                api::get_user_saves(user.id).await.unwrap_or_else(|e| {
-                    debug!("Error fetching saves: {:?}", e);
-                    Vec::<api::Save>::new()
-                })
-            } else {
-                std::future::ready(Vec::<api::Save>::new()).await
-            }
-        }
+    let mut saves = use_loader(move || {
+        let id = {
+            let u = USER.read();
+            u.as_ref().unwrap().id
+        };
+        async move { api::get_user_saves(id).await }
     })?;
 
-    let saves = saves_res().unwrap_or_else(Vec::<api::Save>::new);
-
     let mut new_save_open = use_signal(|| false);
+
+    let mut selected_game = use_signal::<api::Game>(api::Game::default);
 
     rsx! {
         document::Title { "Save Manager" }
@@ -58,9 +50,6 @@ pub fn Saves() -> Element {
                         }
                     };
                     let name = get_text(&data[0].1);
-                    let game: api::Game = unsafe {
-                        std::mem::transmute(get_text(&data[1].1).parse::<i8>().unwrap())
-                    };
 
                     if name.contains('/') || name.contains('\\') {
                         toast_api
@@ -71,12 +60,12 @@ pub fn Saves() -> Element {
                             );
                         return;
                     }
-                    if let Err(e) = api::create_save(name, game).await {
+                    if let Err(e) = api::create_save(name, selected_game()).await {
                         debug!("Error creating save: {:?}", e);
                     } else {
                         new_save_open.set(false);
                     }
-                    saves_res.restart();
+                    saves.restart();
                 },
                 LabeledInput {
                     id: "save_name",
@@ -87,7 +76,11 @@ pub fn Saves() -> Element {
                 }
                 div { class: "flex flex-col gap-y-1",
                     Label { html_for: "save_game", "Game" }
-                    Select::<api::Game> { name: "save_game", id: "save_game", width: "12rem",
+                    Select::<api::Game> {
+                        name: "save_game",
+                        id: "save_game",
+                        width: "12rem",
+                        on_value_change: move |game: Option<api::Game>| selected_game.set(game.unwrap_or_default()),
                         SelectGroup {
                             SelectGroupLabel { "Games" }
                             for game in api::Game::iter() {
@@ -121,7 +114,7 @@ pub fn Saves() -> Element {
 }
 
 #[component]
-fn SaveList(saves: ReadSignal<Vec<api::Save>>) -> Element {
+fn SaveList(saves: Loader<Vec<api::Save>>) -> Element {
     #[derive(Debug, Clone, Copy, PartialEq)]
     enum SortBy {
         NameAsc,
@@ -234,7 +227,6 @@ fn SaveList(saves: ReadSignal<Vec<api::Save>>) -> Element {
                             },
                             last_updated_sort_icon {}
                         }
-
                     }
                     span { "Versions" }
                 }
@@ -260,7 +252,7 @@ fn SaveRow(save: api::Save) -> Element {
     rsx! {
         Link {
             to: Route::SaveDetails { id: save.id },
-            class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-neutral-600 odd:bg-neutral-700",
+            class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-white/10 odd:bg-white/5",
 
             span { "{save.name}" }
             span { "{save.game}" }

@@ -4,18 +4,16 @@ use api::UserAccessExt;
 mod list;
 use list::VersionList;
 
-type VersionProvider = Resource<Result<Vec<api::Version>, ServerFnError>>;
+type VersionProvider = Loader<Vec<api::Version>>;
 
 #[component]
 pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
     let save_res = use_server_future(move || api::get_save_details(id()))?;
     let save_r = save_res().ok_or(anyhow::anyhow!("Failed to load save details"))??;
     let save = use_signal(|| save_r);
-    let save_versions_res = use_server_future(move || api::get_save_versions(id()))?;
+    let versions = use_loader(move || api::get_save_versions(id()))?;
 
-    use_context_provider::<VersionProvider>(|| save_versions_res);
-
-    let save_version_list = save_versions_res().unwrap().map(|l| use_store(|| l));
+    use_context_provider::<VersionProvider>(|| versions);
 
     use_context_provider(|| save);
 
@@ -26,21 +24,8 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
     .map(|r| r.unwrap_or(false))
     .unwrap_or(false);
 
-    let count = match save_version_list.as_ref() {
-        Ok(versions) => versions.len(),
-        Err(_) => 0,
-    };
+    let count = use_memo(move || versions.read().len());
 
-    let save_versions = match save_version_list {
-        Ok(versions) => {
-            rsx! {
-                VersionList { versions, modify }
-            }
-        }
-        Err(_) => rsx! {
-            p { "Failed to load versions" }
-        },
-    };
     let mut new_version_open = use_signal(|| false);
     let mut delete_save_open = use_signal(|| false);
     let mut save_access_open = use_signal(|| false);
@@ -81,7 +66,7 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
 
             Separator {}
 
-            {save_versions}
+            VersionList { versions, modify }
 
             if modify {
                 Button {
@@ -92,7 +77,7 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
                 }
             }
 
-            NewVersionDialog { id, new_version_open, save_versions_res }
+            NewVersionDialog { id, new_version_open }
 
             SaveAccessDialog { id, save_access_open, owner: save().owner }
 
@@ -122,13 +107,59 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
     }
 }
 
+#[derive(Clone)]
+struct NewVersionContext {
+    pub file: Signal<Option<dioxus::html::FileData>>,
+}
+
 #[component]
-fn NewVersionDialog(
-    id: ReadSignal<i32>,
-    new_version_open: Signal<bool>,
-    save_versions_res: VersionProvider,
-) -> Element {
-    let toast_api = use_toast();
+fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Element {
+    let mut label = use_signal(String::new);
+    let file = use_signal(|| None::<dioxus::html::FileData>);
+
+    use_context_provider(move || NewVersionContext { file });
+
+    let mut save_versions_res = use_context::<VersionProvider>();
+
+    let make_data = move || {
+        struct Data {
+            pub label: String,
+            pub file: Option<dioxus::html::FileData>,
+        }
+
+        impl dioxus::html::HasFileData for Data {
+            fn files(&self) -> Vec<dioxus::html::FileData> {
+                self.file.clone().into_iter().collect()
+            }
+        }
+
+        impl HasFormData for Data {
+            fn valid(&self) -> bool {
+                true
+            }
+            fn value(&self) -> String {
+                panic!("This should never be called, as we are using a custom form data handler");
+            }
+            fn values(&self) -> Vec<(String, FormValue)> {
+                vec![
+                    ("label".to_string(), FormValue::Text(self.label.clone())),
+                    ("file".to_string(), FormValue::File(self.file.clone())),
+                ]
+            }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+        }
+
+        let data = Data {
+            label: label.cloned(),
+            file: file.cloned(),
+        };
+
+        let form_data = dioxus::html::FormData::new(data);
+
+        FormEvent::new(std::rc::Rc::new(form_data), false)
+    };
 
     rsx! {
         Dialog {
@@ -144,43 +175,34 @@ fn NewVersionDialog(
                 onsubmit: move |e: FormEvent| async move {
                     e.prevent_default();
 
-                    let values = e.data().values();
+                    let data = e.data();
 
-                    let name = match &values[0].1 {
-                        FormValue::Text(s) => s,
-                        _ => unreachable!("Expected text input for label"),
-                    };
+                    if !data.files().is_empty() {
+                        if let Err(e) = api::create_version(id(), e.into()).await {
+                            error!("Failed to create version: {e}");
+                        }
+                    } else {
+                        let data = make_data();
 
-                    if name.contains('/') || name.contains('\\') {
-                        toast_api
-                            .error(
-                                "Invalid Version Label".to_string(),
-                                ToastOptions::new()
-                                    .description(
-                                        "Version label cannot contain '/' or '\\' characters.",
-                                    ),
-                            );
-                        return;
-                    }
-                    if let Err(e) = api::create_version(id(), e.into()).await {
-                        error!("Failed to create version: {e}");
+                        if let Err(e) = api::create_version(id(), data.into()).await {
+                            error!("Failed to create version: {e}");
+                        }
                     }
                     save_versions_res.restart();
                     new_version_open.set(false);
                 },
 
-                Input { placeholder: "Label", name: "label", required: true }
-
                 Input {
-                    placeholder: "File",
-                    name: "file",
-                    multiple: false,
-                    r#type: "file",
+                    placeholder: "Label",
+                    name: "label",
                     required: true,
+                    value: label(),
+                    oninput: move |e: FormEvent| label.set(e.value()),
                 }
 
-                div { class: "flex flex-row justify-between",
+                NewVersionFileSelection {}
 
+                div { class: "flex flex-row justify-between",
                     Button {
                         variant: ButtonVariant::Secondary,
                         size: ButtonSize::Lg,
@@ -343,7 +365,7 @@ fn SaveAccessRow(
 
     rsx! {
         div {
-            class: "grid grid-cols-subgrid col-span-full p-2 items-center cursor-pointer hover:bg-neutral-600 odd:bg-neutral-800",
+            class: "grid grid-cols-subgrid col-span-full p-2 items-center cursor-pointer hover:bg-white/10 odd:bg-white/5",
             onclick: move |_| {
                 let username = access.user.username.clone();
                 async move {
@@ -389,5 +411,364 @@ fn SaveAccessRow(
                 }
             }
         }
+    }
+}
+
+trait CanAuto {
+    fn can_fetch(&self) -> bool;
+    fn can_deploy(&self) -> bool;
+}
+
+impl CanAuto for api::Game {
+    fn can_fetch(&self) -> bool {
+        matches!(self, api::Game::IntoTheRadius2)
+    }
+
+    fn can_deploy(&self) -> bool {
+        matches!(self, api::Game::IntoTheRadius2)
+    }
+}
+
+#[cfg(feature = "desktop")]
+#[component]
+fn NewVersionFileSelection() -> Element {
+    let save = use_context::<Signal<api::Save>>();
+    let game = use_memo(move || save.read().game);
+    let can_fetch = use_memo(move || game().can_fetch());
+    let mut auto = use_signal(|| can_fetch.cloned());
+
+    let ui = use_memo(move || {
+        if auto() {
+            use crate::versions::desktop_ui::NewVersionGameOptions;
+            rsx! {
+                NewVersionGameOptions {}
+            }
+        } else {
+            rsx! {
+                Input {
+                    placeholder: "File",
+                    name: "file",
+                    multiple: false,
+                    r#type: "file",
+                    required: true,
+                }
+            }
+        }
+    });
+
+    rsx! {
+        div { class: "flex flex-row justify-between items-center gap-4",
+            h3 { class: "text-xl", "File Selection" }
+
+            div { class: "flex flex-row rounded",
+                Button {
+                    class: "rounded-r-none",
+                    disabled: !can_fetch(),
+                    variant: if auto() { ButtonVariant::Primary } else { ButtonVariant::Secondary },
+                    onclick: move |e: MouseEvent| {
+                        e.prevent_default();
+                        auto.set(true);
+                    },
+                    "Auto"
+                }
+                Button {
+                    class: "rounded-l-none",
+                    variant: if !auto() { ButtonVariant::Primary } else { ButtonVariant::Secondary },
+                    onclick: move |e: MouseEvent| {
+                        e.prevent_default();
+                        auto.set(false);
+                    },
+                    "Manual"
+                }
+            }
+        }
+
+        Separator {}
+
+        {ui}
+    }
+}
+
+#[cfg(not(feature = "desktop"))]
+#[component]
+fn NewVersionFileSelection() -> Element {
+    rsx! {
+        Input {
+            placeholder: "File",
+            name: "file",
+            multiple: false,
+            r#type: "file",
+            required: true,
+        }
+    }
+}
+
+#[cfg(feature = "desktop")]
+mod desktop_ui {
+    use dioxus::core::SuperInto;
+
+    use crate::{
+        desktop::{DeployOptions, DeployOptionsStoreExt},
+        prelude::*,
+        versions::NewVersionContext,
+    };
+
+    #[component]
+    pub fn NewVersionGameOptions() -> Element {
+        let save = use_context::<Signal<api::Save>>();
+
+        let NewVersionContext { mut file, .. } = use_context::<NewVersionContext>();
+
+        let game = use_memo(move || save.read().game);
+
+        let deps = use_store(|| crate::desktop::DeployOptions::from(game()));
+
+        let mut path = use_signal(std::path::PathBuf::new);
+
+        let set_path = move |p: std::path::PathBuf| {
+            path.set(p);
+        };
+
+        let go = use_memo(move || match game() {
+            api::Game::IntoTheRadius2 => rsx! {
+                IntoTheRadiusNewVersionOptions { deps, set_path }
+            },
+            api::Game::Satisfactory => rsx! {
+                SatisfactoryNewVersionOptions { deps }
+            },
+        });
+
+        let mut locked = use_signal(|| false);
+
+        let mut set_file_data = move || {
+            let path = path.cloned();
+            locked.set(true);
+            async move {
+                if !path.exists() {
+                    return None;
+                }
+
+                struct FileData(pub std::path::PathBuf);
+
+                impl dioxus::html::NativeFileData for FileData {
+                    fn name(&self) -> String {
+                        self.0.file_name().unwrap().to_string_lossy().into_owned()
+                    }
+
+                    fn size(&self) -> u64 {
+                        std::fs::metadata(&self.0).map(|m| m.len()).unwrap_or(0)
+                    }
+
+                    fn last_modified(&self) -> u64 {
+                        std::fs::metadata(&self.0)
+                            .and_then(|m| m.modified())
+                            .ok()
+                            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|duration| duration.as_secs())
+                            .unwrap_or(0)
+                    }
+
+                    fn read_bytes(
+                        &self,
+                    ) -> std::pin::Pin<
+                        Box<
+                            dyn std::future::Future<
+                                    Output = Result<bytes::Bytes, dioxus_core::CapturedError>,
+                                > + 'static,
+                        >,
+                    > {
+                        let path = self.0.clone();
+                        Box::pin(async move { Ok(bytes::Bytes::from(std::fs::read(&path)?)) })
+                    }
+
+                    fn read_string(
+                        &self,
+                    ) -> std::pin::Pin<
+                        Box<
+                            dyn std::future::Future<
+                                    Output = Result<String, dioxus_core::CapturedError>,
+                                > + 'static,
+                        >,
+                    > {
+                        let path = self.0.clone();
+                        Box::pin(async move { Ok(std::fs::read_to_string(&path)?) })
+                    }
+
+                    fn inner(&self) -> &dyn std::any::Any {
+                        &self.0
+                    }
+
+                    fn path(&self) -> std::path::PathBuf {
+                        self.0.clone()
+                    }
+
+                    fn byte_stream(
+                        &self,
+                    ) -> std::pin::Pin<
+                        Box<
+                            dyn futures_util::Stream<
+                                    Item = Result<bytes::Bytes, dioxus_core::CapturedError>,
+                                >
+                                + 'static
+                                + Send,
+                        >,
+                    > {
+                        let path = self.0.clone();
+                        Box::pin(futures_util::stream::once(async move {
+                            Ok(bytes::Bytes::from(std::fs::read(&path)?))
+                        }))
+                    }
+
+                    fn content_type(&self) -> Option<String> {
+                        Some(
+                            dioxus::asset_resolver::native::get_mime_from_ext(
+                                self.0.extension().and_then(|ext| ext.to_str()),
+                            )
+                            .to_string(),
+                        )
+                    }
+                }
+
+                let file_data = dioxus::html::FileData::new(FileData(path));
+
+                file.set(Some(file_data));
+
+                None as Option<()>
+            }
+        };
+
+        rsx! {
+            if locked() {
+                span { class: "text-white/50", "{path().display()}" }
+                Button {
+                    size: ButtonSize::Lg,
+                    onclick: move |e: MouseEvent| {
+                        e.prevent_default();
+                        file.set(None);
+                        path.set(std::path::PathBuf::new());
+                        locked.set(false);
+                    },
+                    "Clear"
+                }
+            } else {
+                {go}
+
+                Button {
+                    size: ButtonSize::Lg,
+                    onclick: move |e: MouseEvent| async move {
+                        e.prevent_default();
+
+                        set_file_data().await;
+                    },
+                    "Select"
+                }
+            }
+        }
+    }
+
+    #[component]
+    pub fn IntoTheRadiusNewVersionOptions(
+        deps: Store<DeployOptions>,
+        set_path: Callback<std::path::PathBuf>,
+    ) -> Element {
+        use crate::desktop::{self, into_the_radius_2::*};
+        if !deps.is_into_the_radius_2() {
+            deps.set(DeployOptions::IntoTheRadius2(Default::default()));
+        }
+
+        let itr = deps.into_the_radius_2().unwrap();
+
+        let is_coop: ReadSignal<Option<bool>> = use_memo(move || Some(itr.coop()())).super_into();
+        let slot: ReadSignal<Option<SaveSlots>> = use_memo(move || Some(itr.slot()())).super_into();
+
+        let mut error_msg = use_signal(|| None::<String>);
+
+        use_effect(move || {
+            let coop = itr.coop()();
+            let slot = itr.slot()();
+
+            let save_dir = desktop::dirs::get_game_save_dir(api::Game::IntoTheRadius2);
+            if !save_dir.exists() {
+                error_msg.set(Some(format!(
+                    "Save directory does not exist: {}",
+                    save_dir.display()
+                )));
+            }
+
+            let subfolder = if coop { "Coop" } else { "Single" };
+            let slot_path = save_dir.join(subfolder).join(slot.name());
+
+            set_path(slot_path);
+        });
+
+        rsx! {
+            div { class: "flex flex-row justify-between gap-4 items-center",
+                Select::<bool> {
+
+                    value: is_coop,
+                    width: "12rem",
+                    on_value_change: move |coop: Option<bool>| itr.coop().set(coop.unwrap_or(false)),
+                    SelectOption::<bool> {
+                        index: 1usize,
+                        value: false,
+                        text_value: "Singleplayer",
+                        "Singleplayer"
+                    }
+                    SelectOption::<bool> { index: 1usize, value: true, text_value: "Coop", "Coop" }
+                }
+
+                Select::<SaveSlots> {
+                    class: "flex flex-row justify-end",
+                    value: slot,
+                    width: "12rem",
+                    on_value_change: move |slot: Option<SaveSlots>| itr.slot().set(slot.unwrap_or_default()),
+                    SelectOption::<SaveSlots> {
+                        index: 1usize,
+                        value: SaveSlots::Slot1,
+                        text_value: "Save 1",
+                        "Save 1"
+                    }
+                    SelectOption::<SaveSlots> {
+                        index: 1usize,
+                        value: SaveSlots::Slot2,
+                        text_value: "Save 2",
+                        "Save 2"
+                    }
+                    SelectOption::<SaveSlots> {
+                        index: 2usize,
+                        value: SaveSlots::Slot3,
+                        text_value: "Save 3",
+                        "Save 3"
+                    }
+                    SelectOption::<SaveSlots> {
+                        index: 3usize,
+                        value: SaveSlots::AutoSave1,
+                        text_value: "Autosave 1",
+                        "Autosave 1"
+                    }
+                    SelectOption::<SaveSlots> {
+                        index: 4usize,
+                        value: SaveSlots::AutoSave2,
+                        text_value: "Autosave 2",
+                        "Autosave 2"
+                    }
+                    SelectOption::<SaveSlots> {
+                        index: 5usize,
+                        value: SaveSlots::AutoSave3,
+                        text_value: "Autosave 3",
+                        "Autosave 3"
+                    }
+                }
+            }
+
+            if let Some(error) = error_msg() {
+                p { class: "text-red-500", {error} }
+            }
+        }
+    }
+
+    #[component]
+    pub fn SatisfactoryNewVersionOptions(deps: Store<DeployOptions>) -> Element {
+        rsx! {}
     }
 }

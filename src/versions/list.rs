@@ -3,7 +3,7 @@ use crate::prelude::*;
 use super::VersionProvider;
 
 #[component]
-pub fn VersionList(versions: Store<Vec<api::Version>>, modify: ReadSignal<bool>) -> Element {
+pub fn VersionList(versions: Loader<Vec<api::Version>>, modify: ReadSignal<bool>) -> Element {
     #[cfg(feature = "desktop")]
     const INSTALL_COL: &str = " auto";
 
@@ -22,8 +22,12 @@ pub fn VersionList(versions: Store<Vec<api::Version>>, modify: ReadSignal<bool>)
                 span { class: "text-center", "Timestamp" }
                 span { class: "text-center", "By" }
             }
-            for version in versions() {
-                VersionRow { key: "{version.id}", version, modify }
+            for version in versions.read().iter() {
+                VersionRow {
+                    key: "{version.id}",
+                    version: version.clone(),
+                    modify,
+                }
             }
         }
     }
@@ -47,7 +51,7 @@ pub fn VersionRow(version: ReadSignal<api::Version>, modify: ReadSignal<bool>) -
     });
 
     rsx! {
-        div { class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-neutral-600 odd:bg-neutral-700 items-center",
+        div { class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-white/10 odd:bg-white/5 items-center",
 
             span { "{version().label}" }
             span { class: "text-center", "{version().version}" }
