@@ -101,8 +101,8 @@ pub fn VersionRow(version: ReadSignal<api::Version>, modify: ReadSignal<bool>) -
 #[component]
 fn DownloadButton(version: ReadSignal<api::Version>) -> Element {
     rsx! {
-        Link {
-            class: "dx-button",
+        ButtonLink {
+            size: ButtonSize::Icon,
             to: format!("/api/save/{}/{}/download", version().save_id, version().id),
             icons::Download {}
         }

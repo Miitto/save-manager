@@ -106,3 +106,25 @@ pub fn Button(
         }
     }
 }
+
+#[component]
+pub fn ButtonLink(
+    #[props(default)] size: ButtonSize,
+    #[props(default)] variant: ButtonVariant,
+    #[props(into)] to: NavigationTarget,
+    #[props(extends=GlobalAttributes)]
+    #[props(extends=Link)]
+    attributes: Vec<Attribute>,
+    children: Element,
+) -> Element {
+    let base = attributes!(a {
+        class: Styles::dx_button,
+        "data-style": variant.class(),
+        "data-size": size.class(),
+    });
+    let merged = merge_attributes(vec![base, attributes]);
+
+    rsx! {
+        Link { to, attributes: merged, {children} }
+    }
+}

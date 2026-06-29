@@ -4,6 +4,7 @@ use api::UserAccessExt;
 pub mod custom_types;
 mod list;
 mod new;
+use dioxus::logger::tracing::field::debug;
 use list::VersionList;
 use new::*;
 
@@ -119,7 +120,7 @@ struct NewVersionContext {
 #[component]
 fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Element {
     let mut label = use_signal(String::new);
-    let file = use_signal(|| None::<dioxus::html::FileData>);
+    let mut file = use_signal(|| None::<dioxus::html::FileData>);
     let mut error = use_signal(|| None::<String>);
 
     use_context_provider(move || NewVersionContext { file, error });
@@ -142,7 +143,7 @@ fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Elem
 
         let data = e.data();
 
-        let multipart: dioxus::fullstack::MultipartFormData = if !data.files().is_empty() {
+        let multipart: dioxus::fullstack::MultipartFormData = if data.values().len() > 1 {
             e.into()
         } else {
             if file.read().is_none() {
@@ -159,6 +160,8 @@ fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Elem
         } else {
             save_versions_res.restart();
             new_version_open.set(false);
+            label.write().clear();
+            file.set(None);
         }
     };
 
