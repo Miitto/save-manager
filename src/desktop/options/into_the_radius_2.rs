@@ -18,14 +18,20 @@ pub enum SaveSlots {
 }
 
 impl SaveSlots {
-    pub fn name(&self) -> &'static str {
-        match self {
-            SaveSlots::Slot1 => "Save 1.dat.sav",
-            SaveSlots::Slot2 => "Save 2.dat.sav",
-            SaveSlots::Slot3 => "Save 3.dat.sav",
-            SaveSlots::AutoSave1 => "Autosave 1.dat.sav",
-            SaveSlots::AutoSave2 => "Autosave 2.dat.sav",
-            SaveSlots::AutoSave3 => "Autosave 3.dat.sav",
+    pub fn name(&self, coop: bool) -> &'static str {
+        match (self, coop) {
+            (SaveSlots::Slot1, false) => "Save 1.dat.sav",
+            (SaveSlots::Slot2, false) => "Save 2.dat.sav",
+            (SaveSlots::Slot3, false) => "Save 3.dat.sav",
+            (SaveSlots::AutoSave1, false) => "Autosave 1.dat.sav",
+            (SaveSlots::AutoSave2, false) => "Autosave 2.dat.sav",
+            (SaveSlots::AutoSave3, false) => "Autosave 3.dat.sav",
+            (SaveSlots::Slot1, true) => "Save 1.sav",
+            (SaveSlots::Slot2, true) => "Save 2.sav",
+            (SaveSlots::Slot3, true) => "Save 3.sav",
+            (SaveSlots::AutoSave1, true) => "Autosave 1.sav",
+            (SaveSlots::AutoSave2, true) => "Autosave 2.sav",
+            (SaveSlots::AutoSave3, true) => "Autosave 3.sav",
         }
     }
 }

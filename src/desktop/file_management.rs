@@ -112,7 +112,7 @@ pub async fn deploy_version(
     match deploy_options {
         DeployOptions::IntoTheRadius2(into_the_radius_2::ItrOptions { coop, slot }) => {
             let subfolder = if coop { "Coop" } else { "Single" };
-            let slot_path = save_dir.join(subfolder).join(slot.name());
+            let slot_path = save_dir.join(subfolder).join(slot.name(coop));
 
             let mut file = archive.by_index(0).expect("Bad save zip file");
 
