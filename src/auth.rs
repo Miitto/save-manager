@@ -1,5 +1,8 @@
-use crate::{Route, USER};
-use dioxus::prelude::*;
+use crate::{
+    Route, USER,
+    components::{Button, LabeledInput},
+};
+use dioxus::{html::KeyCode::L, prelude::*};
 
 #[component]
 pub fn AuthLayout() -> Element {
@@ -86,35 +89,33 @@ pub fn Login() -> Element {
         document::Title { "Login" }
 
         form {
-            class: "grid grid-cols-[auto_1fr] gap-2 items-center p-4 container w-120 border border-neutral-500/50 rounded mt-8",
+            class: "flex flex-col gap-4 items-center p-4 container w-120 border border-neutral-500/50 rounded mt-8",
             onsubmit: move |e| {
                 e.prevent_default();
                 login_user
                     .call()
             },
-            label { r#for: "username", "Username:" }
-            input {
+            LabeledInput {
+                div_class: "w-full",
                 id: "username",
+                name: "username",
+                required: true,
                 placeholder: "Username",
-                required: true,
-                oninput: move |e| username.set(e.value()),
+                oninput: move |e: FormEvent| username.set(e.value()),
+                "Username"
             }
-            label { r#for: "password", "Password:" }
-            input {
+            LabeledInput {
+                div_class: "w-full",
                 id: "password",
-                r#type: "password",
-                placeholder: "Password",
+                name: "password",
                 required: true,
-                oninput: move |e| password.set(e.value()),
+                placeholder: "Password",
+                r#type: "password",
+                oninput: move |e: FormEvent| password.set(e.value()),
+                "Password"
             }
             {failure_message}
-            div { class: "flex justify-end col-span-full mt-2",
-                input {
-                    r#type: "submit",
-                    class: "rounded bg-white text-black px-4 py-2 cursor-pointer",
-                    value: "Login",
-                }
-            }
+            Button { class: "w-full", "Login" }
         }
     }
 }
@@ -156,42 +157,42 @@ pub fn Register() -> Element {
         document::Title { "Register" }
 
         form {
-            class: "grid grid-cols-[auto_1fr] gap-2 items-center p-4 container w-120 border border-neutral-500/50 rounded mt-8",
+            class: "flex flex-col gap-4 items-center p-4 container w-120 border border-neutral-500/50 rounded mt-8",
             onsubmit: move |e| {
                 e.prevent_default();
                 register.call();
             },
-            label { r#for: "username", "Username:" }
-            input {
+            LabeledInput {
+                div_class: "w-full",
                 id: "username",
+                name: "username",
+                required: true,
                 placeholder: "Username",
-                required: true,
-                oninput: move |e| username.set(e.value()),
+                oninput: move |e: FormEvent| username.set(e.value()),
+                "Username"
             }
-            label { r#for: "password", "Password:" }
-            input {
+            LabeledInput {
+                div_class: "w-full",
                 id: "password",
-                r#type: "password",
+                name: "password",
+                required: true,
                 placeholder: "Password",
-                required: true,
-                oninput: move |e| password.set(e.value()),
-            }
-            label { r#for: "confirm_password", "Confirm Password:" }
-            input {
-                id: "confirm_password",
                 r#type: "password",
-                placeholder: "Confirm Password",
+                oninput: move |e: FormEvent| password.set(e.value()),
+                "Password"
+            }
+            LabeledInput {
+                div_class: "w-full",
+                id: "confirm_password",
+                name: "confirm_password",
                 required: true,
-                oninput: move |e| confirm_password.set(e.value()),
+                placeholder: "Confirm Password",
+                r#type: "password",
+                oninput: move |e: FormEvent| confirm_password.set(e.value()),
+                "Confirm Password"
             }
             {failure_message}
-            div { class: "flex justify-end col-span-full mt-2",
-                input {
-                    r#type: "submit",
-                    class: "rounded bg-white text-black px-4 py-2 cursor-pointer",
-                    value: "Register",
-                }
-            }
+            Button { class: "w-full", "Register" }
         }
     }
 }

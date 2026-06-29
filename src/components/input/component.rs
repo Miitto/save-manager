@@ -68,6 +68,7 @@ pub fn Input(
 #[component]
 pub fn LabeledInput(
     id: String,
+    #[props(default)] div_class: String,
     oninput: Option<EventHandler<FormEvent>>,
     onchange: Option<EventHandler<FormEvent>>,
     oninvalid: Option<EventHandler<FormEvent>>,
@@ -92,8 +93,16 @@ pub fn LabeledInput(
     attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
+    let base = attributes!(div {
+        class: "flex flex-col gap-y-1",
+    });
+    let merged = merge_attributes(vec![
+        base,
+        vec![Attribute::new("class", div_class, None, false)],
+    ]);
+
     rsx! {
-        div { class: "flex flex-col gap-y-1",
+        div { class: "flex flex-col gap-y-1", ..merged,
             crate::Label { html_for: id.clone(), {children} }
             input {
                 id: id.clone(),

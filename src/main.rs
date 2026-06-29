@@ -149,7 +149,7 @@ fn Nav() -> Element {
     });
 
     rsx! {
-        div {
+        nav { class: "border-b border-border",
             Navbar { class: "justify-between",
                 NavbarItem {
                     index: 0usize,
