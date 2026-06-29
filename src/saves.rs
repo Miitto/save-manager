@@ -252,7 +252,7 @@ fn SaveRow(save: api::Save) -> Element {
     rsx! {
         Link {
             to: Route::SaveDetails { id: save.id },
-            class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-white/10 odd:bg-white/5",
+            class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-white/15 odd:bg-white/10",
 
             span { "{save.name}" }
             span { "{save.game}" }

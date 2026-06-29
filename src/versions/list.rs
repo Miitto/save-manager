@@ -51,7 +51,7 @@ pub fn VersionRow(version: ReadSignal<api::Version>, modify: ReadSignal<bool>) -
     });
 
     rsx! {
-        div { class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-white/10 odd:bg-white/5 items-center",
+        div { class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-white/15 odd:bg-white/10 items-center",
 
             span { "{version().label}" }
             span { class: "text-center", "{version().version}" }
