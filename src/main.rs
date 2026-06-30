@@ -13,6 +13,12 @@ const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 pub static USER: GlobalSignal<Option<api::UserPreview>> = Signal::global(|| None);
 
+#[cfg(not(feature = "desktop"))]
+mod index;
+
+#[cfg(not(feature = "desktop"))]
+use index::Index;
+
 #[cfg(not(debug_assertions))]
 const DEFAULT_SERVER_URL: &str = "https://saves.miitto.dev";
 
@@ -75,9 +81,31 @@ use versions::SaveDetails;
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
+#[cfg(feature = "desktop")]
 pub enum Route {
     #[layout(Nav)]
+    #[layout(AuthRequired)]
         #[route("/")]
+        Saves {},
+        #[route("/save/:id")]
+        SaveDetails { id: i32 },
+    #[end_layout]
+    #[layout(AuthLayout)]
+        #[route("/login")]
+        Login {},
+        #[route("/register")]
+        Register {},
+}
+
+#[derive(Debug, Clone, Routable, PartialEq)]
+#[rustfmt::skip]
+#[cfg(not(feature = "desktop"))]
+pub enum Route {
+    #[layout(Nav)]
+    #[route("/")]
+    Index {},
+    #[layout(AuthRequired)]
+        #[route("/saves")]
         Saves {},
         #[route("/save/:id")]
         SaveDetails { id: i32 },
@@ -124,9 +152,6 @@ fn UserDropdown(user: api::UserPreview) -> Element {
 /// Shared navbar component.
 #[component]
 fn Nav() -> Element {
-    let navigator = use_navigator();
-    let user_rsx = USER().map(|u| rsx! { "{u.username}" });
-
     let mut update_user = use_action(move || async move {
         if let Ok(usr) = api::get_user().await {
             (*USER.write()) = Some(usr);
@@ -141,43 +166,98 @@ fn Nav() -> Element {
         update_user.call();
     });
 
+    #[cfg(feature = "desktop")]
+    return rsx! {
+        if USER.read().is_some() {
+            nav { class: "border-b border-border",
+                Navbar { class: "justify-between",
+                    NavbarItem {
+                        index: 0usize,
+                        value: "saves".to_string(),
+                        to: Route::Saves {},
+                        "Saves"
+                    }
+                    UserBtn {}
+                }
+            }
+        }
+        Outlet::<Route> {}
+    };
+
+    #[cfg(not(feature = "desktop"))]
+    return rsx! {
+        nav { class: "border-b border-border",
+            Navbar { class: "justify-between",
+                div {
+                    NavbarItem {
+                        index: 0usize,
+                        value: "home".to_string(),
+                        to: Route::Index {},
+                        "Home"
+                    }
+                    if USER.read().is_some() {
+                        NavbarItem {
+                            index: 1usize,
+                            value: "saves".to_string(),
+                            to: Route::Saves {},
+                            "Saves"
+                        }
+                    }
+                }
+                UserBtn {}
+            }
+        }
+        Outlet::<Route> {}
+    };
+}
+
+#[component]
+fn UserBtn() -> Element {
+    if let Some(user) = USER.read().as_ref() {
+        rsx! {
+            NavbarNav { index: if cfg!(feature = "desktop") { 1usize } else { 2usize },
+                NavbarTrigger { {user.username.clone()} }
+                NavbarContent { "data-float": "right",
+                    NavbarItem {
+                        index: 0usize,
+                        value: "logout".to_string(),
+                        to: Route::Login {},
+                        onclick: move |_| async move {
+                            if let Err(e) = api::logout().await {
+                                error!("Error logging out: {}", e);
+                            }
+                            (*USER.write()) = None;
+                        },
+                        "Logout"
+                    }
+                }
+            }
+        }
+    } else {
+        rsx! {
+            NavbarItem {
+                index: 1usize,
+                value: "login".to_string(),
+                to: Route::Login {},
+                "Login"
+            }
+        }
+    }
+}
+
+#[component]
+fn AuthRequired() -> Element {
+    let navigator = use_navigator();
+
     use_effect(move || {
-        if update_user.value().is_some() && USER().is_none() {
+        if USER().is_none() {
             warn!("User is not logged in, redirecting to login page");
             navigator.replace(Route::Login {});
         }
     });
 
     rsx! {
-        nav { class: "border-b border-border",
-            Navbar { class: "justify-between",
-                NavbarItem {
-                    index: 0usize,
-                    value: "saves".to_string(),
-                    to: Route::Saves {},
-                    "Saves"
-                }
-                NavbarNav { index: 1usize,
-                    NavbarTrigger { {user_rsx} }
-                    NavbarContent { "data-float": "right",
-                        NavbarItem {
-                            index: 0usize,
-                            value: "logout".to_string(),
-                            to: Route::Login {},
-                            onclick: move |_| async move {
-                                if let Err(e) = api::logout().await {
-                                    error!("Error logging out: {}", e);
-                                }
-                                (*USER.write()) = None;
-                            },
-                            "Logout"
-                        }
-                    }
-                }
-            }
-        }
-
-        if USER().is_some() {
+        if USER.read().is_some() {
             Outlet::<Route> {}
         }
     }
