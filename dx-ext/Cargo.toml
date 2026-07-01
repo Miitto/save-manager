@@ -1,0 +1,15 @@
+[package]
+edition = "2024"
+name = "dx-ext"
+version = "0.1.0"
+
+[dependencies]
+bytes = { version = "1.12.0", optional = true }
+dioxus.workspace = true
+futures-util = { version = "0.3.32", optional = true }
+serde.workspace = true
+
+[features]
+desktop = ["dep:bytes", "dep:futures-util", "dioxus/desktop"]
+server = ["dioxus/server"]
+web = ["dioxus/web"]

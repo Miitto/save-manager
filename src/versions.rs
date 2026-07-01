@@ -4,18 +4,17 @@ use api::UserAccessExt;
 pub mod custom_types;
 mod list;
 mod new;
-use dioxus::logger::tracing::field::debug;
 use list::VersionList;
 use new::*;
 
-type VersionProvider = Loader<Vec<api::Version>>;
+type VersionProvider = LoaderStore<Vec<api::Version>>;
 
 #[component]
 pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
     let save_res = use_server_future(move || api::get_save_details(id()))?;
     let save_r = save_res().ok_or(anyhow::anyhow!("Failed to load save details"))??;
     let save = use_signal(|| save_r);
-    let versions = use_loader(move || api::get_save_versions(id()))?;
+    let versions = use_loader_store(move || api::get_save_versions(id()))?;
 
     use_context_provider::<VersionProvider>(|| versions);
 

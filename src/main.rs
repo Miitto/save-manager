@@ -35,6 +35,7 @@ pub mod prelude {
     pub use crate::{USER, icons, icons::IconSize};
     pub use dioxus::{fullstack::Loader, prelude::*};
     pub use dioxus_primitives::toast::{ToastOptions, use_toast};
+    pub use dx_ext::prelude::*;
 }
 
 use prelude::*;

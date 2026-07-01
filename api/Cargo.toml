@@ -5,7 +5,7 @@ version = "0.1.0"
 
 [dependencies]
 anyhow.workspace = true
-dioxus = { workspace = true, features = ["fullstack"] }
+dioxus.workspace = true
 log.workspace = true
 serde.workspace = true
 
@@ -32,7 +32,7 @@ tower-http = { version = "0.7", optional = true, features = ["auth", "cors"] }
 zip.workspace = true
 
 [features]
-desktop = []
+desktop = ["dioxus/desktop"]
 server = [
   "dep:async-trait",
   "dep:axum",
@@ -48,3 +48,4 @@ server = [
   "dep:tower-http",
   "dioxus/server",
 ]
+web = ["dioxus/web"]

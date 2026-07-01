@@ -2,7 +2,7 @@ use crate::{
     Route, USER,
     components::{Button, LabeledInput},
 };
-use dioxus::{html::KeyCode::L, prelude::*};
+use dioxus::prelude::*;
 
 #[component]
 pub fn AuthLayout() -> Element {

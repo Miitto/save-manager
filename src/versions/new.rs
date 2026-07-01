@@ -137,8 +137,7 @@ mod desktop_ui {
                     return;
                 }
                 locked.set(true);
-                let file_data =
-                    dioxus::html::FileData::new(crate::versions::custom_types::FileData(path));
+                let file_data = dioxus::html::FileData::new(dx_ext::DesktopFileData(path));
 
                 file.set(Some(file_data));
             }
