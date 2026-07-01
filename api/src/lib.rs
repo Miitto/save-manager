@@ -34,7 +34,7 @@ pub async fn login(username: String, password: String) -> Result<crate::UserPrev
             .map_err(|e| {
                 error!("Failed to fetch user: {:?}", e);
                 HttpError::new(
-                    StatusCode::UNAUTHORIZED,
+                    StatusCode::BAD_REQUEST,
                     "Invalid username or password".to_string(),
                 )
             })?;
@@ -42,7 +42,7 @@ pub async fn login(username: String, password: String) -> Result<crate::UserPrev
     if !verify(&password, &user.password).unwrap_or(false) {
         warn!("Invalid password for user: {}", username);
         return Err(HttpError::new(
-            StatusCode::UNAUTHORIZED,
+            StatusCode::BAD_REQUEST,
             "Invalid username or password".to_string(),
         )
         .into());
