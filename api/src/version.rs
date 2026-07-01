@@ -119,7 +119,7 @@ pub async fn get_version_details(save_id: i32, version_id: i32) -> Result<Versio
 }
 
 pub fn is_version_name_valid(name: &str) -> bool {
-    !name.trim().is_empty() && !name.contains('/') && !name.contains('\\')
+    !name.trim().is_empty() && !name.contains('/') && !name.contains('\\') && name.len() <= 100
 }
 
 #[post("/api/save/{save_id}/create", auth: crate::auth::Session, db: crate::ServerDb)]
@@ -193,6 +193,20 @@ pub async fn create_version(
         game: crate::Game,
     }
 
+    let SaveIdentRow { name, game } =
+        sqlx::query_as::<_, SaveIdentRow>("SELECT name, game FROM saves WHERE id = $1")
+            .bind(save_id)
+            .fetch_one(&db.0)
+            .await
+            .map_err(|e| {
+                error!("Failed to fetch save game: {e:?}");
+                ServerFnError::ServerError {
+                    message: "Failed to find the save for this version".to_string(),
+                    code: 500,
+                    details: None,
+                }
+            })?;
+
     let version = sqlx::query_as::<_, DbVersion>(
         "INSERT INTO versions (save_id, label, by, version) VALUES ($1, $2, $3, (SELECT COALESCE(MAX(version), 0) FROM versions WHERE save_id = $1) + 1) RETURNING id, save_id, version, label, timestamp, by as user_id, (SELECT username FROM users WHERE id = by) as username;",
     )
@@ -203,42 +217,36 @@ pub async fn create_version(
     .await
     .map_err(|e| {
         error!("Failed to create version: {e:?}");
+
         ServerFnError::ServerError {
             message: "Internal server error".to_string(),
             code: 500,
             details: None,
         }
     })?;
-
-    let SaveIdentRow { name, game } =
-        sqlx::query_as::<_, SaveIdentRow>("SELECT name, game FROM saves WHERE id = $1")
-            .bind(save_id)
-            .fetch_one(&db.0)
-            .await
-            .map_err(|e| {
-                error!("Failed to fetch save game: {e:?}");
-                ServerFnError::ServerError {
-                    message: "Internal server error".to_string(),
-                    code: 500,
-                    details: None,
-                }
-            })?;
 
     let file_path = format!(
         "./saves/{}/{:?}/{}/{}.zip",
         user.username, game, name, version.version
     );
 
-    debug!("Creating version file at: {}", file_path);
+    let file = match std::fs::File::create(&file_path) {
+        Ok(f) => f,
+        Err(e) => {
+            error!("Failed to create version file: {e:?}");
 
-    let file = std::fs::File::create(&file_path).map_err(|e| {
-        error!("Failed to create version file: {e:?}");
-        ServerFnError::ServerError {
-            message: "Internal server error".to_string(),
-            code: 500,
-            details: None,
+            _ = sqlx::query("DELETE FROM versions WHERE id = $1")
+                .bind(version.id)
+                .execute(&db.0)
+                .await;
+
+            return Err(ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            });
         }
-    })?;
+    };
 
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
@@ -310,14 +318,16 @@ pub async fn delete_version(save_id: i32, version_id: i32) -> Result<(), ServerF
 
     debug!("Deleting version file at: {}", file_path);
 
-    std::fs::remove_file(&file_path).map_err(|e| {
-        error!("Failed to delete version file: {e:?}");
-        ServerFnError::ServerError {
-            message: "Internal server error".to_string(),
-            code: 500,
-            details: None,
-        }
-    })?;
+    if std::path::PathBuf::from(&file_path).exists() {
+        std::fs::remove_file(&file_path).map_err(|e| {
+            error!("Failed to delete version file: {e:?}");
+            ServerFnError::ServerError {
+                message: "Internal server error".to_string(),
+                code: 500,
+                details: None,
+            }
+        })?;
+    }
 
     sqlx::query("DELETE FROM versions WHERE id = $1")
         .bind(version_id)
@@ -409,6 +419,12 @@ pub async fn download_version(
         "{:?}_{}_v{}.zip",
         file_path.game, file_path.save_name, file_path.version
     );
+
+    if !file_path.path.exists() {
+        return Err(
+            HttpError::new(StatusCode::NOT_FOUND, "Version file not found".to_string()).into(),
+        );
+    }
 
     let meta = file_path.path.metadata().map_err(|e| {
         error!("Failed to get version file metadata: {e:?}");

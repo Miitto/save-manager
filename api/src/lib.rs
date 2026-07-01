@@ -80,6 +80,14 @@ pub async fn register(
         );
     }
 
+    if username.len() < 3 || username.len() > 50 {
+        return Err(HttpError::new(
+            StatusCode::BAD_REQUEST,
+            "Username must be between 3 and 50 characters".to_string(),
+        )
+        .into());
+    }
+
     let hashed_password = hash(&password, DEFAULT_COST).map_err(|e| {
         error!("Failed to hash password: {:?}", e);
         HttpError::new(

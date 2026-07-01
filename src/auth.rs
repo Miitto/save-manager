@@ -220,6 +220,8 @@ pub fn Register() -> Element {
                 name: "username",
                 required: true,
                 placeholder: "Username",
+                minlength: 3,
+                maxlength: 50,
                 oninput: move |e: FormEvent| username.set(e.value()),
                 "Username"
             }
