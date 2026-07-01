@@ -1,8 +1,9 @@
 use crate::{
     Route, USER,
-    components::{Button, LabeledInput},
+    components::{Button, Checkbox, Label, LabeledInput},
 };
 use dioxus::prelude::*;
+use dioxus_primitives::checkbox::CheckboxState;
 
 #[component]
 pub fn AuthLayout() -> Element {
@@ -60,9 +61,27 @@ pub fn AuthLayout() -> Element {
 pub fn Login() -> Element {
     let mut username = use_signal(String::new);
     let mut password = use_signal(String::new);
+    let mut remember = use_signal(|| false);
+    let checkbox_state = use_memo(move || {
+        Some(if remember() {
+            CheckboxState::Checked
+        } else {
+            CheckboxState::Unchecked
+        })
+    });
 
     let mut login_user = use_action(move || async move {
-        let usr = match api::login(username(), password()).await {
+        let usr = match api::login(
+            username(),
+            password(),
+            if cfg!(feature = "desktop") {
+                Some(true)
+            } else {
+                Some(remember())
+            },
+        )
+        .await
+        {
             Ok(usr) => usr,
             Err(e) => match e {
                 ServerFnError::ServerError { message, .. } => {
@@ -114,6 +133,21 @@ pub fn Login() -> Element {
                 oninput: move |e: FormEvent| password.set(e.value()),
                 "Password"
             }
+
+            if cfg!(not(feature = "desktop")) {
+                div { class: "flex flex-row gap-2 items-center",
+                    Label { html_for: "remember", "Remember me" }
+                    Checkbox {
+                        id: "remember",
+                        name: "remember",
+                        checked: checkbox_state,
+                        on_checked_change: move |state| {
+                            remember.set(state == CheckboxState::Checked);
+                        },
+                    }
+                }
+            }
+
             {failure_message}
             Button { class: "w-full", "Login" }
         }
@@ -125,12 +159,30 @@ pub fn Register() -> Element {
     let mut username = use_signal(String::new);
     let mut password = use_signal(String::new);
     let mut confirm_password = use_signal(String::new);
+    let mut remember = use_signal(|| false);
+    let checkbox_state = use_memo(move || {
+        Some(if remember() {
+            CheckboxState::Checked
+        } else {
+            CheckboxState::Unchecked
+        })
+    });
 
     let mut register = use_action(move || async move {
         if password() != confirm_password() {
             return Ok(Some("Passwords do not match".to_string()));
         }
-        let usr = match api::register(username(), password()).await {
+        let usr = match api::register(
+            username(),
+            password(),
+            if cfg!(feature = "desktop") {
+                Some(true)
+            } else {
+                Some(remember())
+            },
+        )
+        .await
+        {
             Ok(usr) => usr,
             Err(e) => match e {
                 ServerFnError::ServerError { message, .. } => {
@@ -190,6 +242,19 @@ pub fn Register() -> Element {
                 r#type: "password",
                 oninput: move |e: FormEvent| confirm_password.set(e.value()),
                 "Confirm Password"
+            }
+            if cfg!(not(feature = "desktop")) {
+                div { class: "flex flex-row gap-2 items-center",
+                    Label { html_for: "remember", "Remember me" }
+                    Checkbox {
+                        id: "remember",
+                        name: "remember",
+                        checked: checkbox_state,
+                        on_checked_change: move |state| {
+                            remember.set(state == CheckboxState::Checked);
+                        },
+                    }
+                }
             }
             {failure_message}
             Button { class: "w-full", "Register" }

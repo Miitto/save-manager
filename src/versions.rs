@@ -340,10 +340,11 @@ fn SaveAccessRow(
         div {
             class: "grid grid-cols-subgrid col-span-full p-2 items-center cursor-pointer hover:bg-white/10 odd:bg-white/5",
             onclick: move |_| {
+                let username = access.read().user.username.clone();
                 async move {
                     if let Err(e) = api::update_user_save_access(
                             save_id(),
-                            access.read().user.username.clone(),
+                            username,
                             if matches!(access.read().access, api::UserAccess::View) {
                                 api::UserAccess::Edit
                             } else {

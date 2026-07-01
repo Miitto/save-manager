@@ -19,7 +19,13 @@ pub type UserId = i32;
 type Result<T> = core::result::Result<T, ServerFnError>;
 
 #[post("/api/user/login", auth: auth::Session, db: ServerDb)]
-pub async fn login(username: String, password: String) -> Result<crate::UserPreview> {
+pub async fn login(
+    username: String,
+    password: String,
+    remember: Option<bool>,
+) -> Result<crate::UserPreview> {
+    let remember = remember.unwrap_or(false);
+
     if auth.current_user.is_some() {
         return Err(
             HttpError::new(StatusCode::BAD_REQUEST, "Already logged in".to_string()).into(),
@@ -50,7 +56,7 @@ pub async fn login(username: String, password: String) -> Result<crate::UserPrev
 
     auth.login_user(user.id.into());
 
-    auth.remember_user(true);
+    auth.remember_user(remember);
 
     debug!("User logged in: {:?}", user);
 
@@ -61,7 +67,13 @@ pub async fn login(username: String, password: String) -> Result<crate::UserPrev
 }
 
 #[post("/api/user/register", auth: auth::Session, db: ServerDb)]
-pub async fn register(username: String, password: String) -> Result<crate::UserPreview> {
+pub async fn register(
+    username: String,
+    password: String,
+    remember: Option<bool>,
+) -> Result<crate::UserPreview> {
+    let remember = remember.unwrap_or(false);
+
     if auth.current_user.is_some() {
         return Err(
             HttpError::new(StatusCode::BAD_REQUEST, "Already logged in".to_string()).into(),
@@ -93,7 +105,7 @@ pub async fn register(username: String, password: String) -> Result<crate::UserP
 
     auth.login_user(user.id.into());
 
-    auth.remember_user(true);
+    auth.remember_user(remember);
 
     debug!("User registered: {:?}", user);
 
