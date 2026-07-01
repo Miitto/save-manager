@@ -216,6 +216,8 @@ fn SaveAccessDialog(
 ) -> Element {
     let mut save_access = use_loader_store(move || api::get_save_access(id()))?;
 
+    use_context_provider::<SaveAccessProvider>(|| save_access);
+
     let mut add_new_access = use_action(move |username: String| async move {
         if let Err(e) = api::add_user_save_access(id(), username).await {
             error!("Failed to add access: {e}");
