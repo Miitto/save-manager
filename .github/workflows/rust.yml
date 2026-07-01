@@ -1,43 +1,43 @@
 name: Rust
 
 on:
-  push:
-    tags:
-      - '**'
+    push:
+        tags:
+            - "**"
 
 env:
-  CARGO_TERM_COLOR: always
+    CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    runs-on: windows-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      repository-projects: write
+    build:
+        runs-on: windows-latest
+        permissions:
+            contents: write
+            pull-requests: write
+            repository-projects: write
 
-    steps:
-    - uses: actions/checkout@v5
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-    - name: Cache
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Install Cargo Binstall
-      run: cargo install cargo-binstall
-    - name: Install Dioxus CLI
-      run: cargo binstall dioxus-cli
-    - name: Bundle
-      run: dx bundle --release --platform desktop --package-types msi --package-types nsis
-    - name: Release
-      uses: softprops/action-gh-release@v3
-      if: github.ref_type == 'tag'
-      with:
-        working_directory: dist
-        files: |
-          target/dx/save-manager/bundle/windows/msi/*.msi
-          target/dx/save-manager/bundle/windows/nsis/*.exe
+        steps:
+            - uses: actions/checkout@v5
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+            - name: Cache
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/
+                      target
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            - name: Install Cargo Binstall
+              run: cargo install cargo-binstall
+            - name: Install Dioxus CLI
+              run: cargo binstall dioxus-cli
+            - name: Bundle
+              run: dx bundle --release --platform desktop --package-types msi --package-types nsis
+            - name: Release
+              uses: softprops/action-gh-release@v3
+              if: github.ref_type == 'tag'
+              with:
+                  working_directory: target/dx/save-manager/bundle/windows
+                  files: |
+                      msi/*.msi
+                      nsis/*.exe
