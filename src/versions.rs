@@ -1,10 +1,10 @@
 use crate::prelude::*;
-use api::UserAccessExt;
+use api::{NamedUserAccessStoreExt, SaveAccessStoreExt, UserAccessExt, UserPreviewStoreExt};
 
 pub mod custom_types;
 mod list;
 mod new;
-use list::VersionList;
+pub use list::VersionList;
 use new::*;
 
 type VersionProvider = LoaderStore<Vec<api::Version>>;
@@ -206,7 +206,7 @@ fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Elem
     }
 }
 
-type SaveListProvider = Resource<Result<api::SaveAccess, ServerFnError>>;
+type SaveAccessProvider = LoaderStore<api::SaveAccess>;
 
 #[component]
 fn SaveAccessDialog(
@@ -214,8 +214,7 @@ fn SaveAccessDialog(
     save_access_open: Signal<bool>,
     owner: ReadSignal<i32>,
 ) -> Element {
-    let mut save_access_res =
-        use_server_future(move || async move { api::get_save_access(id()).await })?;
+    let mut save_access = use_loader_store(move || api::get_save_access(id()))?;
 
     let mut add_new_access = use_action(move |username: String| async move {
         if let Err(e) = api::add_user_save_access(id(), username).await {
@@ -225,7 +224,7 @@ fn SaveAccessDialog(
                 _ => Ok(Some("Failed to add access".to_string())),
             };
         }
-        save_access_res.restart();
+        save_access.restart();
         Ok(None) as Result<Option<String>, ServerFnError>
     });
 
@@ -277,7 +276,7 @@ fn SaveAccessDialog(
             Separator {}
 
             SaveAccessList {
-                save_access_res,
+                save_access,
                 save_id: id,
                 is_owner: USER().is_some_and(|u| u.id == owner()),
             }
@@ -287,55 +286,43 @@ fn SaveAccessDialog(
 }
 
 #[component]
-fn SaveAccessList(
-    save_access_res: SaveListProvider,
+pub fn SaveAccessList(
+    save_access: SaveAccessProvider,
     save_id: ReadSignal<i32>,
     is_owner: bool,
 ) -> Element {
-    let save_access = save_access_res().and_then(|res| res.ok());
-
-    let owner = save_access.as_ref().map(|a| {
-        rsx! {
-            div { class: "grid grid-cols-subgrid col-span-full p-2 items-center",
-                span { "{a.owner.username}" }
-                span { class: "font-bold text-center col-span-2", "Owner" }
-            }
-            Separator { class: "col-span-full" }
+    let owner = rsx! {
+        div { class: "grid grid-cols-subgrid col-span-full p-2 items-center",
+            span { "{save_access.read_store().owner().username()}" }
+            span { class: "font-bold text-center col-span-2", "Owner" }
         }
-    });
+        Separator { class: "col-span-full" }
+    };
 
-    let save_list = save_access.map(|a| {
-        rsx! {
-            for access in a.access_list {
+    rsx! {
+        div { class: "grid grid-cols-[1fr_auto_auto] gap-x-4 border-b border-border mb-2 items-center max-h-[80dvh] overflow-y-auto",
+            {owner}
+            for access in save_access.read_store().access_list().iter() {
                 SaveAccessRow {
-                    key: "{access.user.id}",
+                    key: "{access.user().id()}",
                     access,
                     save_id,
-                    save_access_res,
                     is_owner,
                 }
             }
-        }
-    });
-
-    rsx! {
-        div { class: "grid grid-cols-[1fr_auto_auto] gap-x-4 border-b border-neutral-500 mb-2 items-center max-h-[80dvh] overflow-y-auto",
-            {owner}
-            {save_list}
         }
     }
 }
 
 #[component]
 fn SaveAccessRow(
-    access: api::NamedUserAccess,
+    access: ReadStore<api::NamedUserAccess>,
     save_id: ReadSignal<i32>,
-    save_access_res: SaveListProvider,
     is_owner: bool,
 ) -> Element {
-    let username = access.user.username.clone();
+    let mut save_access = use_context::<SaveAccessProvider>();
     let mut remove_access = use_action(move || {
-        let username = username.clone();
+        let username = access.user().username().cloned();
         async move {
             if let Err(e) = api::remove_user_save_access(save_id(), username).await {
                 error!("Failed to remove access: {e}");
@@ -344,7 +331,7 @@ fn SaveAccessRow(
                     _ => Ok(Some("Failed to remove access".to_string())),
                 };
             }
-            save_access_res.restart();
+            save_access.restart();
             Ok(None) as Result<Option<String>, ServerFnError>
         }
     });
@@ -353,12 +340,11 @@ fn SaveAccessRow(
         div {
             class: "grid grid-cols-subgrid col-span-full p-2 items-center cursor-pointer hover:bg-white/10 odd:bg-white/5",
             onclick: move |_| {
-                let username = access.user.username.clone();
                 async move {
                     if let Err(e) = api::update_user_save_access(
                             save_id(),
-                            username,
-                            if matches!(access.access, api::UserAccess::View) {
+                            access.read().user.username.clone(),
+                            if matches!(access.read().access, api::UserAccess::View) {
                                 api::UserAccess::Edit
                             } else {
                                 api::UserAccess::View
@@ -368,21 +354,21 @@ fn SaveAccessRow(
                     {
                         error!("Failed to update access: {e}");
                     }
-                    save_access_res.restart();
+                    save_access.restart();
                 }
             },
-            span { "{access.user.username}" }
+            span { "{access.user().username()}" }
             span { class: "flex justify-center items-center",
                 if is_owner {
                     Button { title: "Current Access", size: ButtonSize::Icon,
-                        if matches!(access.access, api::UserAccess::View) {
+                        if matches!(access.read().access, api::UserAccess::View) {
                             icons::Eye {}
                         } else {
                             icons::Pencil {}
                         }
                     }
                 } else {
-                    span { class: "font-bold text-center", "{access.access}" }
+                    span { class: "font-bold text-center", "{access.access()}" }
                 }
             }
             if is_owner {

@@ -303,6 +303,16 @@ impl<T> dioxus::core::SuperFrom<LoaderStore<T>> for WriteSignal<Option<T>> {
     }
 }
 
+impl<T> LoaderStore<T> {
+    pub fn read_store(&self) -> ReadStore<T> {
+        self.read_value
+    }
+
+    pub fn store(&self) -> Store<Option<T>> {
+        self.real_value
+    }
+}
+
 #[derive(PartialEq)]
 pub struct LoaderHandle<M = ()> {
     resource: Resource<()>,

@@ -14,7 +14,7 @@ pub fn AuthLayout() -> Element {
 
     let mut update_user = use_action(move || async move {
         if let Ok(usr) = api::get_user().await {
-            (*USER.write()) = Some(usr);
+            (*USER.write()) = usr;
         } else {
             (*USER.write()) = None;
         }
@@ -38,14 +38,14 @@ pub fn AuthLayout() -> Element {
             div { class: "flex flex-row container justify-center items-center text-2xl border border-border rounded w-fit",
                 Link { to: Route::Login {},
                     div {
-                        class: if is_login { "bg-neutral-600 " },
+                        class: if is_login { "bg-secondary-2 text-primary" },
                         class: "flex items-center justify-center cursor-pointer hover:underline w-60 h-20 rounded-l",
                         span { "Login" }
                     }
                 }
                 Link { to: Route::Register {},
                     div {
-                        class: if !is_login { "bg-neutral-600 " },
+                        class: if !is_login { "bg-secondary-2 text-primary" },
                         class: "flex items-center justify-center cursor-pointer hover:underline w-60 h-20 rounded-r",
                         span { "Register" }
                     }
@@ -89,7 +89,7 @@ pub fn Login() -> Element {
         document::Title { "Login" }
 
         form {
-            class: "flex flex-col gap-4 items-center p-4 container w-120 border border-neutral-500/50 rounded mt-8",
+            class: "flex flex-col gap-4 items-center p-4 container w-120 border border-border rounded mt-8",
             onsubmit: move |e| {
                 e.prevent_default();
                 login_user
@@ -157,7 +157,7 @@ pub fn Register() -> Element {
         document::Title { "Register" }
 
         form {
-            class: "flex flex-col gap-4 items-center p-4 container w-120 border border-neutral-500/50 rounded mt-8",
+            class: "flex flex-col gap-4 items-center p-4 container w-120 border border-border rounded mt-8",
             onsubmit: move |e| {
                 e.prevent_default();
                 register.call();

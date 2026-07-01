@@ -98,11 +98,11 @@ pub fn LabeledInput(
     });
     let merged = merge_attributes(vec![
         base,
-        vec![Attribute::new("class", div_class, None, false)],
+        vec![Attribute::new("class", div_class, None, true)],
     ]);
 
     rsx! {
-        div { class: "flex flex-col gap-y-1", ..merged,
+        div {..merged,
             crate::Label { html_for: id.clone(), {children} }
             input {
                 id: id.clone(),

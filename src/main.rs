@@ -28,6 +28,11 @@ static SERVER_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 pub mod icons {
     pub use dioxus_icons::IconSize;
     pub use dioxus_icons::lucide::*;
+
+    use dioxus::prelude::{Asset, asset, manganis};
+
+    pub const GITHUB_ICON_DARK: Asset = asset!("/assets/github_dark.svg");
+    pub const GITHUB_ICON_LIGHT: Asset = asset!("/assets/github_light.svg");
 }
 
 pub mod prelude {
@@ -123,30 +128,9 @@ fn App() -> Element {
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
+        document::Meta { name: "color-scheme", content: "dark" }
 
         ToastProvider { Router::<Route> {} }
-    }
-}
-
-#[component]
-fn UserDropdown(user: api::UserPreview) -> Element {
-    rsx! {
-        div { class: "flex items-center group h-10 w-fit px-4 relative z-50",
-            span { class: "text-white", "{user.username}" }
-
-            div { class: "hidden group-hover:block absolute right-0 top-full bg-neutral-700 rounded shadow-lg border border-neutral-500",
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    onclick: move |_| async move {
-                        if let Err(e) = api::logout().await {
-                            error!("Error logging out: {}", e);
-                        }
-                        (*USER.write()) = None;
-                    },
-                    "Logout"
-                }
-            }
-        }
     }
 }
 
@@ -155,7 +139,7 @@ fn UserDropdown(user: api::UserPreview) -> Element {
 fn Nav() -> Element {
     let mut update_user = use_action(move || async move {
         if let Ok(usr) = api::get_user().await {
-            (*USER.write()) = Some(usr);
+            (*USER.write()) = usr;
         } else {
             (*USER.write()) = None;
         }
@@ -189,7 +173,7 @@ fn Nav() -> Element {
     return rsx! {
         nav { class: "border-b border-border",
             Navbar { class: "justify-between",
-                div {
+                div { class: "flex gap-1",
                     NavbarItem {
                         index: 0usize,
                         value: "home".to_string(),

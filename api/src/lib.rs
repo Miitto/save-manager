@@ -114,15 +114,13 @@ pub async fn logout() -> Result<()> {
 }
 
 #[get("/api/user", auth: auth::Session)]
-pub async fn get_user() -> Result<UserPreview> {
+pub async fn get_user() -> Result<Option<UserPreview>> {
     use auth::RequireUser;
 
-    let user = auth.require_user()?;
-
-    Ok(UserPreview {
+    Ok(auth.require_user().ok().map(|user| UserPreview {
         id: user.id,
         username: user.username.clone(),
-    })
+    }))
 }
 
 /// Get the current user's permissions, guarding the endpoint with the `Auth` validator.

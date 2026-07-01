@@ -69,24 +69,20 @@ pub fn VersionRow(version: ReadSignal<api::Version>, modify: ReadSignal<bool>) -
             }
         }
 
-        if delete_open() {
-            AlertDialog {
-                open: delete_open(),
-                on_open_change: move |open| {
-                    delete_open.set(open);
-                },
-                AlertDialogTitle { "Delete Version" }
-                AlertDialogDescription {
-                    "Are you sure you want to delete version {version().version} (\"{version().label}\")?"
-                }
-                AlertDialogActions {
-                    AlertDialogCancel { "Cancel" }
-                    AlertDialogAction {
-                        on_click: move |_| {
-                            delete_version.call();
-                        },
-                        "Delete"
-                    }
+        AlertDialog {
+            open: delete_open(),
+            on_open_change: move |open| {
+                delete_open.set(open);
+            },
+            AlertDialogTitle { "Delete Version" }
+            AlertDialogDescription { "Are you sure you want to delete version {version().version} (\"{version().label}\")?" }
+            AlertDialogActions {
+                AlertDialogCancel { "Cancel" }
+                AlertDialogAction {
+                    on_click: move |_| {
+                        delete_version.call();
+                    },
+                    "Delete"
                 }
             }
         }

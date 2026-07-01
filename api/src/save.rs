@@ -33,7 +33,7 @@ pub struct Save {
 
 pub type VersionId = i32;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Store)]
 #[cfg_attr(feature = "server", derive(sqlx::FromRow))]
 pub struct UserPreview {
     pub id: crate::UserId,
@@ -152,7 +152,7 @@ pub(crate) async fn query_user_save_access(
     })
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Store)]
 #[cfg_attr(feature = "server", derive(sqlx::FromRow))]
 pub struct NamedUserAccess {
     #[cfg_attr(feature = "server", sqlx(flatten))]
@@ -160,7 +160,7 @@ pub struct NamedUserAccess {
     pub access: UserAccess,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Store)]
 pub struct SaveAccess {
     pub owner: UserPreview,
     pub access_list: Vec<NamedUserAccess>,
