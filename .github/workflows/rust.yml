@@ -1,0 +1,36 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: 
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-all-crates: "true"
+        cache-workspace-crates: "true"
+    - name: Install Dioxus CLI
+      run: cargo install dioxus-cli
+    - name: Bundle
+      run: dx bundle --release --platform desktop --package-types msi --package-types nsis
+    - name: Release
+      uses: softprops/action-gh-release@v3
+      if: github.ref_type == 'tag'
+      with:
+        working_directory: dist
+        files: |
+          target/dx/save-manager/bundle/windows/msi/*.msi
+          target/dx/save-manager/bundle/windows/nsis/*.exe
