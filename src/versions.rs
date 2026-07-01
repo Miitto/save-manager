@@ -78,9 +78,9 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
                     onclick: move |_| new_version_open.set(true),
                     icons::CirclePlus {}
                 }
-            }
 
-            NewVersionDialog { id, new_version_open }
+                NewVersionDialog { id, new_version_open }
+            }
 
             SaveAccessDialog { id, save_access_open, owner: save().owner }
 
@@ -346,27 +346,7 @@ fn SaveAccessRow(
     });
 
     rsx! {
-        div {
-            class: "grid grid-cols-subgrid col-span-full p-2 items-center cursor-pointer hover:bg-white/10 odd:bg-white/5",
-            onclick: move |_| {
-                let username = access.read().user.username.clone();
-                async move {
-                    if let Err(e) = api::update_user_save_access(
-                            save_id(),
-                            username,
-                            if matches!(access.read().access, api::UserAccess::View) {
-                                api::UserAccess::Edit
-                            } else {
-                                api::UserAccess::View
-                            },
-                        )
-                        .await
-                    {
-                        error!("Failed to update access: {e}");
-                    }
-                    save_access.restart();
-                }
-            },
+        div { class: "grid grid-cols-subgrid col-span-full p-2 items-center odd:bg-white/10",
             span { "{access.user().username()}" }
             span { class: "flex justify-center items-center",
                 if is_owner {
