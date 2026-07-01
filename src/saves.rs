@@ -46,12 +46,15 @@ pub fn Saves() -> Element {
                     let get_text = |v: &FormValue| {
                         match v {
                             FormValue::Text(t) => t.clone(),
-                            _ => unreachable!("Expected text field."),
+                            _ => {
+                                error!("Expected text input for form value");
+                                String::new()
+                            }
                         }
                     };
                     let name = get_text(&data[0].1);
 
-                    if name.contains('/') || name.contains('\\') {
+                    if name.trim().is_empty() || name.contains('/') || name.contains('\\') {
                         toast_api
                             .error(
                                 "Invalid Save Name".to_string(),

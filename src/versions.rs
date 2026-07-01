@@ -255,8 +255,15 @@ fn SaveAccessDialog(
                                 debug!("Adding access to save {:?}", e.data());
                                 let username = match &e.data().values()[0].1 {
                                     FormValue::Text(s) => s.clone(),
-                                    _ => unreachable!("Expected text input for username"),
+                                    _ => {
+                                        error!("Expected text input for form value");
+                                        String::new()
+                                    }
                                 };
+
+                                if username.trim().is_empty() {
+                                    return;
+                                }
 
                                 add_new_access.call(username).await
                             },
