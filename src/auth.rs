@@ -221,7 +221,7 @@ pub fn Register() -> Element {
                 required: true,
                 placeholder: "Username",
                 minlength: 3,
-                maxlength: 50,
+                maxlength: 25,
                 oninput: move |e: FormEvent| username.set(e.value()),
                 "Username"
             }

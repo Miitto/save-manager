@@ -75,6 +75,7 @@ pub fn Saves() -> Element {
                     name: "save_name",
                     required: true,
                     placeholder: "Save Name",
+                    maxlength: 50,
                     "Name"
                 }
                 div { class: "flex flex-col gap-y-1",
@@ -177,7 +178,7 @@ fn SaveList(saves: Loader<Vec<api::Save>>) -> Element {
     };
 
     rsx! {
-        div { class: "flex flex-col gap-y-1 mt-2",
+        div { class: "flex flex-col gap-y-1 mt-2 max-w-screen",
             div { class: "flex flex-row items-center justify-end px-2",
                 Input {
                     class: "grow max-w-100",
@@ -186,7 +187,7 @@ fn SaveList(saves: Loader<Vec<api::Save>>) -> Element {
                     oninput: move |e: FormEvent| filter.set(e.value()),
                 }
             }
-            div { class: "grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-b border-border mb-2 items-center",
+            div { class: "grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-b border-border mb-2 items-center max-w-full",
                 div { class: "font-bold grid grid-cols-subgrid col-span-full px-4 py-2 border-b border-border",
                     div { class: "flex flex-row items-center gap-2",
                         span { "Name" }
@@ -255,9 +256,9 @@ fn SaveRow(save: api::Save) -> Element {
     rsx! {
         Link {
             to: Route::SaveDetails { id: save.id },
-            class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-white/15 odd:bg-white/10",
+            class: "grid grid-cols-subgrid col-span-full py-2 px-4 max-w-full hover:bg-white/15 odd:bg-white/10",
 
-            span { "{save.name}" }
+            span { class: "overflow-ellipsis overflow-hidden", "{save.name}" }
             span { "{save.game}" }
             span { {time} }
             span { class: "text-center", "{save.version_count}" }

@@ -22,8 +22,11 @@
 .dx-toast {
     z-index: calc(var(--toast-count) - var(--toast-index));
     display: flex;
+    gap: 0.5rem;
     overflow: hidden;
     width: 18rem;
+    max-width: 100%;
+    min-height: fit-content;
     height: 4rem;
     box-sizing: border-box;
     align-items: center;
@@ -156,8 +159,6 @@
 }
 
 .dx-toast-content {
-    flex: 1;
-    margin-right: 8px;
     transition: filter 0.2s ease;
 }
 
@@ -168,8 +169,13 @@
 }
 
 .dx-toast-description {
+    max-width: 100%;
+    width: fit-content;
     color: var(--color-secondary-3);
     font-size: 0.875rem;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    overflow: hidden;
 }
 
 .dx-toast-close {

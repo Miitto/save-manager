@@ -80,10 +80,10 @@ pub async fn register(
         );
     }
 
-    if username.len() < 3 || username.len() > 50 {
+    if username.len() < 3 || username.len() > 25 {
         return Err(HttpError::new(
             StatusCode::BAD_REQUEST,
-            "Username must be between 3 and 50 characters".to_string(),
+            "Username must be between 3 and 25 characters".to_string(),
         )
         .into());
     }

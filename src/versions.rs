@@ -38,12 +38,14 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
     rsx! {
         document::Title { "{save().name}" }
 
-        div { class: "flex flex-col",
-            div { class: "flex flex-row justify-between items-center p-4",
-                h1 { class: "text-4xl font-bold", "{save().name}" }
+        div { class: "flex flex-col max-w-screen",
+            div { class: "flex flex-row justify-between items-center p-4 max-w-full",
+                h1 { class: "text-4xl font-bold overflow-ellipsis overflow-hidden",
+                    "{save().name}"
+                }
                 div { class: "flex flex-row gap-2 items-center",
-                    p {
-                        span { class: "font-bold", "{count}" }
+                    p { class: "whitespace-nowrap",
+                        span { class: "font-bold ", "{count}" }
                         " version(s)"
                     }
                     Button {
@@ -110,26 +112,18 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
     }
 }
 
-#[derive(Clone)]
-struct NewVersionContext {
-    pub file: Signal<Option<dioxus::html::FileData>>,
-    pub error: Signal<Option<String>>,
-}
-
 #[component]
 fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Element {
     let mut label = use_signal(String::new);
-    let mut file = use_signal(|| None::<dioxus::html::FileData>);
+
     let mut error = use_signal(|| None::<String>);
 
-    use_context_provider(move || NewVersionContext { file, error });
-
     let mut save_versions_res = use_context::<VersionProvider>();
-
-    let make_data = move || {
+    let (file_select, get_file_data) = NewVersionFileSelection();
+    let make_data = move |file: dioxus::html::FileData| {
         let data = custom_types::Data {
             label: label.cloned(),
-            file: file.cloned(),
+            file: Some(file),
         };
 
         let form_data = dioxus::html::FormData::new(data);
@@ -137,30 +131,35 @@ fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Elem
         FormEvent::new(std::rc::Rc::new(form_data), false)
     };
 
-    let submit = move |e: FormEvent| async move {
-        e.prevent_default();
+    let submit = move |e: FormEvent| {
+        let get_file_data = get_file_data();
+        async move {
+            e.prevent_default();
 
-        let data = e.data();
+            let data = e.data();
 
-        let multipart: dioxus::fullstack::MultipartFormData = if data.values().len() > 1 {
-            e.into()
-        } else {
-            if file.read().is_none() {
-                error.set(Some("No file selected".to_string()));
-                return;
+            let multipart: dioxus::fullstack::MultipartFormData = if data.values().len() > 1 {
+                e.into()
+            } else {
+                let data = match get_file_data {
+                    Ok(d) => make_data(d),
+                    Err(e) => {
+                        error!("Failed to make data: {e}");
+                        error.set(Some(e));
+                        return;
+                    }
+                };
+                data.into()
+            };
+
+            if let Err(e) = api::create_version(id(), multipart).await {
+                error!("Failed to create version: {e}");
+                error.set(Some(format!("Failed to create version: {e}")));
+            } else {
+                save_versions_res.restart();
+                new_version_open.set(false);
+                label.write().clear();
             }
-            let data = make_data();
-            data.into()
-        };
-
-        if let Err(e) = api::create_version(id(), multipart).await {
-            error!("Failed to create version: {e}");
-            error.set(Some(format!("Failed to create version: {e}")));
-        } else {
-            save_versions_res.restart();
-            new_version_open.set(false);
-            label.write().clear();
-            file.set(None);
         }
     };
 
@@ -179,10 +178,11 @@ fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Elem
                     name: "label",
                     required: true,
                     value: label(),
+                    maxlength: 50,
                     oninput: move |e: FormEvent| label.set(e.value()),
                 }
 
-                NewVersionFileSelection {}
+                {file_select}
 
                 if let Some(e) = error() {
                     p { class: "text-red-500", {e} }

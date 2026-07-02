@@ -30,7 +30,7 @@ pub(crate) async fn setup_db(db: &Pool) -> anyhow::Result<()> {
     db.execute(
         r#"CREATE TABLE IF NOT EXISTS users (
                 "id" INTEGER PRIMARY KEY,
-                "username" VARCHAR(50) NOT NULL UNIQUE,
+                "username" VARCHAR(25) NOT NULL UNIQUE,
                 "password" VARCHAR(256) NOT NULL
             )"#,
     )
@@ -39,7 +39,7 @@ pub(crate) async fn setup_db(db: &Pool) -> anyhow::Result<()> {
     db.execute(
         r#"CREATE TABLE IF NOT EXISTS saves (
                 "id" INTEGER PRIMARY KEY,
-                "name" VARCHAR(256) NOT NULL,
+                "name" VARCHAR(50) NOT NULL,
                 "game" INTEGER NOT NULL,
                 "owner" INTEGER NOT NULL,
                 FOREIGN KEY(owner) REFERENCES users(id),
@@ -54,7 +54,7 @@ pub(crate) async fn setup_db(db: &Pool) -> anyhow::Result<()> {
                 "id" INTEGER PRIMARY KEY,
                 "save_id" INTEGER NOT NULL,
                 "version" INTEGER NOT NULL,
-                "label" VARCHAR(100) NOT NULL,
+                "label" VARCHAR(50) NOT NULL,
                 "timestamp" INTEGER NOT NULL DEFAULT (unixepoch('now')),
                 "by" INTEGER NOT NULL,
                 FOREIGN KEY(save_id) REFERENCES saves(id),

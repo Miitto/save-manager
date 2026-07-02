@@ -297,7 +297,13 @@ pub async fn get_save_name(save_id: i32) -> Result<String, ServerFnError> {
 }
 
 pub fn is_save_name_valid(name: &str) -> bool {
-    !name.trim().is_empty() && !name.contains('/') && !name.contains('\\')
+    !name.trim().is_empty()
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains('\0')
+        && !name.contains('\n')
+        && !name.contains('\r')
+        && name.len() <= 50
 }
 
 #[post("/api/save/create", auth: crate::auth::Session, db: crate::ServerDb)]

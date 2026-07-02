@@ -4,19 +4,22 @@ use super::VersionProvider;
 
 #[component]
 pub fn VersionList(versions: ReadStore<Vec<api::Version>>, modify: ReadSignal<bool>) -> Element {
+    let mut cols = 4;
+
     #[cfg(feature = "desktop")]
-    const INSTALL_COL: &str = " auto";
+    {
+        cols += 1;
+    }
 
-    #[cfg(not(feature = "desktop"))]
-    const INSTALL_COL: &str = "";
-
-    let cols = if modify() { " auto" } else { "" };
+    if modify() {
+        cols += 1;
+    }
 
     rsx! {
         div {
-            style: "grid-template-columns: 1fr auto auto auto auto{cols}{INSTALL_COL};",
-            class: "grid gap-x-4 border-b border-border mb-2",
-            div { class: "font-bold grid grid-cols-subgrid col-span-full px-4 py-2 border-b border-border",
+            style: "grid-template-columns: 1fr repeat({cols}, auto);",
+            class: "grid gap-x-4 border-b border-border mb-2 max-w-full overflow-hidden",
+            div { class: "font-bold grid grid-cols-subgrid col-span-full px-4 py-2 border-b border-border max-w-full",
                 span { "Label" }
                 span { class: "text-center", "Version" }
                 span { class: "text-center", "Timestamp" }
@@ -47,12 +50,11 @@ pub fn VersionRow(version: ReadSignal<api::Version>, modify: ReadSignal<bool>) -
     });
 
     rsx! {
-        div { class: "grid grid-cols-subgrid col-span-full py-2 px-4 hover:bg-white/15 odd:bg-white/10 items-center",
-
-            span { "{version().label}" }
+        div { class: "grid grid-cols-subgrid col-span-full max-w-full py-2 px-4 hover:bg-white/15 odd:bg-white/10 items-center",
+            span { class: "overflow-ellipsis overflow-hidden", "{version().label}" }
             span { class: "text-center", "{version().version}" }
             span { class: "text-center", {time_string} }
-            span { class: "text-center", "{version().by.username}" }
+            span { class: "overflow-ellipsis overflow-hidden text-center", "{version().by.username}" }
             DownloadButton { version }
             InstallButton { version }
             if modify() {
@@ -129,7 +131,8 @@ fn DownloadButton(version: ReadSignal<api::Version>) -> Element {
                                         ToastOptions::new()
                                             .description(
                                                 format!("Version downloaded to {}", path.display()),
-                                            ),
+                                            )
+                                            .duration(std::time::Duration::from_secs(10)),
                                     );
                             }
                             Err(_) => {

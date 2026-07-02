@@ -119,7 +119,7 @@ pub async fn get_version_details(save_id: i32, version_id: i32) -> Result<Versio
 }
 
 pub fn is_version_name_valid(name: &str) -> bool {
-    !name.trim().is_empty() && !name.contains('/') && !name.contains('\\') && name.len() <= 100
+    !name.trim().is_empty() && !name.contains('/') && !name.contains('\\') && name.len() <= 50
 }
 
 #[post("/api/save/{save_id}/create", auth: crate::auth::Session, db: crate::ServerDb)]

@@ -15,7 +15,7 @@ fn StyledToast(props: ToastProps) -> Element {
             id: props.id,
             index: props.index,
             title: props.title,
-            description: props.description,
+            description: props.description.clone(),
             toast_type: props.toast_type,
             on_close: props.on_close,
             permanent: props.permanent,
@@ -24,7 +24,7 @@ fn StyledToast(props: ToastProps) -> Element {
             attributes: props.attributes,
             ToastContent {
                 ToastTitle {}
-                ToastDescription {}
+                ToastDescription { {props.description} }
             }
             ToastCloseButton {}
         }
@@ -34,11 +34,7 @@ fn StyledToast(props: ToastProps) -> Element {
 #[component]
 fn ToastContent(props: ToastContentProps) -> Element {
     rsx! {
-        toast::ToastContent {
-            class: Styles::dx_toast_content,
-            attributes: props.attributes,
-            {props.children}
-        }
+        toast::ToastContent { class: Styles::dx_toast_content, attributes: props.attributes, {props.children} }
     }
 }
 
@@ -85,7 +81,11 @@ pub fn ToastProvider(
     children: Element,
 ) -> Element {
     let render_toast = render_toast.unwrap_or_else(|| {
-        Callback::new(|p: toast::ToastPropsWithOwner| rsx! { StyledToast { ..p } })
+        Callback::new(|p: toast::ToastPropsWithOwner| {
+            rsx! {
+                StyledToast { ..p }
+            }
+        })
     });
 
     rsx! {
@@ -103,7 +103,7 @@ pub fn ToastProvider(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dioxus_primitives::toast::{use_toast, ToastOptions};
+    use dioxus_primitives::toast::{ToastOptions, use_toast};
 
     #[component]
     fn TriggerToast() -> Element {
@@ -124,9 +124,7 @@ mod tests {
     fn styled_toast_preserves_primitive_fallback_children() {
         let mut dom = VirtualDom::new(|| {
             rsx! {
-                ToastProvider {
-                    TriggerToast {}
-                }
+                ToastProvider { TriggerToast {} }
             }
         });
         dom.rebuild_in_place();
