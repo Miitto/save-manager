@@ -62,6 +62,18 @@ impl UserAccess {
     }
 }
 
+impl std::ops::Not for UserAccess {
+    type Output = UserAccess;
+
+    fn not(self) -> Self::Output {
+        match self {
+            UserAccess::View => UserAccess::Edit,
+            UserAccess::Edit => UserAccess::View,
+            _ => self,
+        }
+    }
+}
+
 pub trait UserAccessExt {
     fn can_edit(&self) -> bool;
     fn can_view(&self) -> bool;

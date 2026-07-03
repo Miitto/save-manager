@@ -3,7 +3,7 @@ use crate::prelude::*;
 use super::VersionProvider;
 
 #[component]
-pub fn VersionList(versions: ReadStore<Vec<api::Version>>, modify: ReadSignal<bool>) -> Element {
+pub fn VersionList(versions: WriteStore<Vec<api::Version>>, modify: ReadSignal<bool>) -> Element {
     let mut cols = 4;
 
     #[cfg(feature = "desktop")]
@@ -14,6 +14,10 @@ pub fn VersionList(versions: ReadStore<Vec<api::Version>>, modify: ReadSignal<bo
     if modify() {
         cols += 1;
     }
+
+    let mut remove_version = move |id: api::VersionId| {
+        versions.write().retain(|v| v.id != id);
+    };
 
     rsx! {
         div {
@@ -26,14 +30,26 @@ pub fn VersionList(versions: ReadStore<Vec<api::Version>>, modify: ReadSignal<bo
                 span { class: "text-center", "By" }
             }
             for version in versions.iter() {
-                VersionRow { key: "{version.read().id}", version, modify }
+                VersionRow {
+                    key: "{version.read().id}",
+                    version,
+                    modify,
+                    remove_version: move |_| {
+                        remove_version(version.peek().id);
+                    },
+                }
             }
         }
     }
 }
 
 #[component]
-pub fn VersionRow(version: ReadSignal<api::Version>, modify: ReadSignal<bool>) -> Element {
+pub fn VersionRow(
+    version: ReadStore<api::Version>,
+    modify: ReadSignal<bool>,
+    remove_version: Callback<()>,
+) -> Element {
+    let toast_api = use_toast();
     let time_string = chrono::DateTime::from_timestamp(version().timestamp as i64, 0)
         .expect("Failed to convert date from unixepoch")
         .format("%Y-%m-%d %H:%M:%S")
@@ -43,11 +59,19 @@ pub fn VersionRow(version: ReadSignal<api::Version>, modify: ReadSignal<bool>) -
 
     let mut version_list = use_context::<VersionProvider>();
 
-    let mut delete_version = use_action(move || async move {
-        api::delete_version(version().save_id, version().id).await?;
-        version_list.restart();
-        Ok(()) as Result<(), ServerFnError>
-    });
+    let delete_version = move || {
+        remove_version.call(());
+        async move {
+            if let Err(e) = api::delete_version(version().save_id, version().id).await {
+                error!("Failed to delete version: {e}");
+                toast_api.error(
+                    "Failed to delete version".to_string(),
+                    ToastOptions::new().description(e.to_string()),
+                );
+                version_list.restart();
+            }
+        }
+    };
 
     rsx! {
         div { class: "grid grid-cols-subgrid col-span-full max-w-full py-2 px-4 hover:bg-white/15 odd:bg-white/10 items-center",
@@ -81,8 +105,8 @@ pub fn VersionRow(version: ReadSignal<api::Version>, modify: ReadSignal<bool>) -
             AlertDialogActions {
                 AlertDialogCancel { "Cancel" }
                 AlertDialogAction {
-                    on_click: move |_| {
-                        delete_version.call();
+                    on_click: move |_| async move {
+                        delete_version().await;
                     },
                     "Delete"
                 }

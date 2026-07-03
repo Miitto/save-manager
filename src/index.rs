@@ -150,7 +150,10 @@ fn VersionPreview() -> Element {
 
     rsx! {
         div { class: "pointer-events-none select-none border rounded-xl border-border p-4",
-            crate::versions::VersionList { versions, modify: true }
+            crate::versions::VersionList {
+                versions: versions.store().transpose().expect("Instant future did not resolve?"),
+                modify: true,
+            }
         }
     }
 }

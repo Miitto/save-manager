@@ -63,12 +63,20 @@ pub fn Saves() -> Element {
                             );
                         return;
                     }
-                    if let Err(e) = api::create_save(name, selected_game()).await {
-                        debug!("Error creating save: {:?}", e);
-                    } else {
-                        new_save_open.set(false);
+                    match api::create_save(name, selected_game()).await {
+                        Err(e) => {
+                            error!("Error creating save: {:?}", e);
+                            toast_api
+                                .error(
+                                    "Failed to create save".to_string(),
+                                    ToastOptions::new().description(e.to_string()),
+                                );
+                        }
+                        Ok(s) => {
+                            saves.write().push(s);
+                            new_save_open.set(false);
+                        }
                     }
-                    saves.restart();
                 },
                 LabeledInput {
                     id: "save_name",

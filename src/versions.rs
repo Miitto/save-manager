@@ -71,7 +71,10 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
 
             Separator {}
 
-            VersionList { versions, modify }
+            VersionList {
+                versions: versions.store().transpose().expect("Version list to have value"),
+                modify,
+            }
 
             if modify {
                 Button {
@@ -118,7 +121,7 @@ fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Elem
 
     let mut error = use_signal(|| None::<String>);
 
-    let mut save_versions_res = use_context::<VersionProvider>();
+    let mut version_list = use_context::<VersionProvider>();
     let (file_select, get_file_data) = NewVersionFileSelection();
     let make_data = move |file: dioxus::html::FileData| {
         let data = custom_types::Data {
@@ -152,13 +155,19 @@ fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Elem
                 data.into()
             };
 
-            if let Err(e) = api::create_version(id(), multipart).await {
-                error!("Failed to create version: {e}");
-                error.set(Some(format!("Failed to create version: {e}")));
-            } else {
-                save_versions_res.restart();
-                new_version_open.set(false);
-                label.write().clear();
+            match api::create_version(id(), multipart).await {
+                Ok(v) => {
+                    version_list.write().insert(0, v);
+                    new_version_open.set(false);
+                    label.write().clear();
+                }
+                Err(e) => {
+                    error!("Failed to create version: {e}");
+                    match e {
+                        ServerFnError::ServerError { message, .. } => error.set(Some(message)),
+                        _ => error.set(Some("Failed to create version".to_string())),
+                    }
+                }
             }
         }
     };
@@ -218,27 +227,54 @@ fn SaveAccessDialog(
 
     use_context_provider::<SaveAccessProvider>(|| save_access);
 
-    let mut add_new_access = use_action(move |username: String| async move {
-        if let Err(e) = api::add_user_save_access(id(), username).await {
-            error!("Failed to add access: {e}");
-            return match e {
-                ServerFnError::ServerError { message, .. } => Ok(Some(message)),
-                _ => Ok(Some("Failed to add access".to_string())),
-            };
-        }
-        save_access.restart();
-        Ok(None) as Result<Option<String>, ServerFnError>
-    });
+    let write = save_access
+        .store()
+        .transpose()
+        .ok_or(anyhow::anyhow!("Save access list to have value"))?;
 
-    let add_new_access_error = add_new_access
-        .value()
-        .and_then(|e| e.ok().map(|e| e()))
-        .flatten()
-        .map(|e| {
+    let mut error = use_signal(|| None::<String>);
+
+    let add_new_access = move |username: String| {
+        let new_row = api::NamedUserAccess {
+            user: api::UserPreview {
+                id: 0,
+                username: username.clone(),
+            },
+            access: api::UserAccess::View,
+        };
+
+        let mut access_list = write.access_list();
+        let pos = access_list
+            .read()
+            .binary_search_by(|a| a.user.username.cmp(&username));
+
+        async move {
+            if let Err(pos) = pos {
+                access_list.write().insert(pos, new_row);
+            } else {
+                error!("User already has access");
+                error.set(Some("User already has access".into()));
+            }
+
+            if let Err(e) = api::add_user_save_access(id(), username).await {
+                error!("Failed to add access: {e}");
+                save_access.restart();
+
+                match e {
+                    ServerFnError::ServerError { message, .. } => error.set(Some(message)),
+                    _ => error.set(Some("Failed to add access".to_string())),
+                }
+            }
+        }
+    };
+
+    let error_rsx = use_memo(move || {
+        error().map(|e| {
             rsx! {
                 p { class: "text-red-500", {e} }
             }
-        });
+        })
+    });
 
     rsx! {
         Dialog {
@@ -267,7 +303,7 @@ fn SaveAccessDialog(
                                     return;
                                 }
 
-                                add_new_access.call(username).await
+                                add_new_access(username).await
                             },
                             Input {
                                 placeholder: "Username",
@@ -277,7 +313,7 @@ fn SaveAccessDialog(
 
                             Button { size: ButtonSize::Icon, icons::CirclePlus {} }
                         }
-                        {add_new_access_error}
+                        {error_rsx}
                     }
                 }
             }
@@ -308,15 +344,33 @@ pub fn SaveAccessList(
         Separator { class: "col-span-full" }
     };
 
+    let write = save_access
+        .store()
+        .transpose()
+        .ok_or(anyhow::anyhow!("Save access list to have value"))?;
+
+    let remove_access = move |id: api::UserId| {
+        write.access_list().retain(|access| access.user.id != id);
+    };
+
     rsx! {
         div { class: "grid grid-cols-[1fr_auto_auto] gap-x-4 border-b border-border mb-2 items-center max-h-[80dvh] overflow-y-auto",
             {owner}
-            for access in save_access.read_store().access_list().iter() {
+            for access in save_access
+                .store()
+                .transpose()
+                .expect("Save access list to have value")
+                .access_list()
+                .iter()
+            {
                 SaveAccessRow {
                     key: "{access.user().id()}",
                     access,
                     save_id,
                     is_owner,
+                    remove_access: move |_| {
+                        remove_access(access.read().user.id);
+                    },
                 }
             }
         }
@@ -325,49 +379,79 @@ pub fn SaveAccessList(
 
 #[component]
 fn SaveAccessRow(
-    access: ReadStore<api::NamedUserAccess>,
+    access: WriteStore<api::NamedUserAccess>,
     save_id: ReadSignal<i32>,
     is_owner: bool,
+    remove_access: Callback<()>,
 ) -> Element {
+    let toast_api = use_toast();
     let mut save_access = use_context::<SaveAccessProvider>();
-    let mut remove_access = use_action(move || {
+    let remove_access = move || {
         let username = access.user().username().cloned();
+        remove_access.call(());
         async move {
             if let Err(e) = api::remove_user_save_access(save_id(), username).await {
                 error!("Failed to remove access: {e}");
-                return match e {
-                    ServerFnError::ServerError { message, .. } => Ok(Some(message)),
-                    _ => Ok(Some("Failed to remove access".to_string())),
-                };
+                save_access.restart();
+                toast_api.error(
+                    "Failed to remove access".to_string(),
+                    ToastOptions::new().description(e.to_string()),
+                );
             }
-            save_access.restart();
-            Ok(None) as Result<Option<String>, ServerFnError>
         }
-    });
+    };
 
     rsx! {
         div { class: "grid grid-cols-subgrid col-span-full p-2 items-center odd:bg-white/10",
             span { "{access.user().username()}" }
-            span { class: "flex justify-center items-center",
-                if is_owner {
-                    Button { title: "Current Access", size: ButtonSize::Icon,
+            if is_owner {
+                span { class: "flex justify-center items-center",
+                    Button {
+                        title: "Current Access",
+                        size: ButtonSize::Icon,
+                        onclick: move |_| {
+                            let original_access = access.read().access;
+                            access.access().toggle();
+                            let username = access.user().username().cloned();
+                            async move {
+                                if let Err(e) = api::update_user_save_access(
+                                        save_id(),
+                                        username,
+                                        if matches!(original_access, api::UserAccess::View) {
+                                            api::UserAccess::Edit
+                                        } else {
+                                            api::UserAccess::View
+                                        },
+                                    )
+                                    .await
+                                {
+                                    error!("Failed to update access: {e}");
+                                    access.access().set(original_access);
+                                    toast_api
+                                        .error(
+                                            "Failed to update access".to_string(),
+                                            ToastOptions::new().description(e.to_string()),
+                                        );
+                                }
+                            }
+                        },
                         if matches!(access.read().access, api::UserAccess::View) {
                             icons::Eye {}
                         } else {
                             icons::Pencil {}
                         }
                     }
-                } else {
-                    span { class: "font-bold text-center", "{access.access()}" }
                 }
+            } else {
+                span { class: "font-bold text-right col-span-2", "{access.access()}" }
             }
             if is_owner {
                 Button {
                     size: ButtonSize::Icon,
                     title: "Revoke Access",
-                    onclick: move |e: MouseEvent| {
+                    onclick: move |e: MouseEvent| async move {
                         e.stop_propagation();
-                        remove_access.call();
+                        remove_access().await;
                     },
                     icons::Trash2 {}
                 }
