@@ -11,7 +11,7 @@ use crate::query_user_save_access;
 #[cfg(feature = "server")]
 use crate::UserAccessExt;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Store)]
 pub struct Version {
     pub id: VersionId,
     pub save_id: SaveId,
@@ -191,10 +191,11 @@ pub async fn create_version(
     struct SaveIdentRow {
         name: String,
         game: crate::Game,
+        owner: String,
     }
 
-    let SaveIdentRow { name, game } =
-        sqlx::query_as::<_, SaveIdentRow>("SELECT name, game FROM saves WHERE id = $1")
+    let SaveIdentRow { name, game, owner } =
+        sqlx::query_as::<_, SaveIdentRow>("SELECT s.name, s.game, u.username as owner FROM saves s LEFT JOIN users u ON s.owner = u.id WHERE s.id = $1")
             .bind(save_id)
             .fetch_one(&db.0)
             .await
@@ -227,13 +228,13 @@ pub async fn create_version(
 
     let file_path = format!(
         "./saves/{}/{:?}/{}/{}.zip",
-        user.username, game, name, version.version
+        owner, game, name, version.version
     );
 
     let file = match std::fs::File::create(&file_path) {
         Ok(f) => f,
         Err(e) => {
-            error!("Failed to create version file: {e:?}");
+            error!("Failed to create version file {}: {e:?}", file_path);
 
             _ = sqlx::query("DELETE FROM versions WHERE id = $1")
                 .bind(version.id)
@@ -241,7 +242,7 @@ pub async fn create_version(
                 .await;
 
             return Err(ServerFnError::ServerError {
-                message: "Internal server error".to_string(),
+                message: "Filesystem error".to_string(),
                 code: 500,
                 details: None,
             });
