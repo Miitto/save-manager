@@ -1,3 +1,5 @@
+#![allow(unused_imports, unused)]
+
 pub mod alert_dialog;
 pub mod button;
 pub mod checkbox;

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub fn get_version_cache_dir() -> std::path::PathBuf {
     use std::env;
 

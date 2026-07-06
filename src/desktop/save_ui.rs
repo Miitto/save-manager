@@ -46,8 +46,6 @@ pub fn IntoTheRadiusNewVersionOptions(
     let is_coop: ReadSignal<Option<bool>> = use_memo(move || Some(itr.coop()())).super_into();
     let slot: ReadSignal<Option<SaveSlots>> = use_memo(move || Some(itr.slot()())).super_into();
 
-    let mut error_msg = use_signal(|| None::<String>);
-
     #[derive(Default, Clone, Copy, PartialEq, Eq)]
     struct Saves {
         pub s1: bool,
@@ -163,16 +161,12 @@ pub fn IntoTheRadiusNewVersionOptions(
                 }
             }
         }
-
-        if let Some(error) = error_msg() {
-            p { class: "text-red-500", {error} }
-        }
     }
 }
 
 #[component]
 pub fn SatisfactoryNewVersionOptions(
-    GameSaveProps {
+    #[allow(unused)] GameSaveProps {
         mut deps,
         allow_new,
     }: GameSaveProps,
