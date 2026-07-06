@@ -1,3 +1,5 @@
+#[cfg(feature = "desktop")]
+use crate::desktop::ExplorerView;
 use crate::prelude::*;
 
 use crate::{Route, USER};
@@ -185,9 +187,24 @@ fn SaveList(saves: Loader<Vec<api::Save>>) -> Element {
         _ => dioxus_icons::lucide::ChevronsUpDown,
     };
 
+    #[cfg(feature = "desktop")]
+    let reveal_button = rsx! {
+        Button {
+            size: ButtonSize::Icon,
+            title: "Open Save Cache Folder",
+            onclick: move |_| { crate::desktop::dirs::get_version_cache_dir().open_folder() },
+            icons::FolderOpen {}
+        }
+    };
+    #[cfg(not(feature = "desktop"))]
+    let reveal_button = rsx! {};
+
     rsx! {
         div { class: "flex flex-col gap-y-1 mt-2 max-w-screen",
-            div { class: "flex flex-row items-center justify-end px-2",
+            div {
+                class: if cfg!(feature = "desktop") { "justify-between" } else { "justify-end" },
+                class: "flex flex-row items-center px-2",
+                {reveal_button}
                 Input {
                     class: "grow max-w-100",
                     placeholder: "Filter saves...",

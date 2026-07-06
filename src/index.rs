@@ -146,6 +146,16 @@ fn VersionPreview() -> Element {
         ])
     })?;
 
+    let save = use_signal(|| api::Save {
+        id: 0,
+        name: "My Save".to_string(),
+        game: api::Game::Satisfactory,
+        most_recent_version: None,
+        version_count: 3,
+        owner: 0,
+    });
+    use_context_provider(|| save);
+
     use_context_provider(|| versions);
 
     rsx! {
@@ -153,6 +163,7 @@ fn VersionPreview() -> Element {
             crate::versions::VersionList {
                 versions: versions.store().transpose().expect("Instant future did not resolve?"),
                 modify: true,
+                deploy_version: |_| {},
             }
         }
     }

@@ -1,11 +1,13 @@
 use dioxus::prelude::*;
 use futures::StreamExt;
 
-fn get_version_path(save_name: &str, version: &api::Version) -> std::path::PathBuf {
+pub fn get_save_path(save_name: &str) -> std::path::PathBuf {
     let cache_dir = super::dirs::get_version_cache_dir();
-    cache_dir
-        .join(save_name)
-        .join(format!("{}.zip", version.version))
+    cache_dir.join(save_name)
+}
+
+pub fn get_version_path(save_name: &str, version: &api::Version) -> std::path::PathBuf {
+    get_save_path(save_name).join(format!("{}.zip", version.version))
 }
 
 pub async fn download_version(
@@ -109,25 +111,24 @@ pub async fn deploy_version(
     let file = std::fs::File::open(&zip_path).expect("Failed to open zip file");
     let mut archive = zip::ZipArchive::new(file).expect("Failed to read zip file");
 
-    match deploy_options {
-        DeployOptions::IntoTheRadius2(into_the_radius_2::ItrOptions { coop, slot }) => {
-            let subfolder = if coop { "Coop" } else { "Single" };
-            let slot_path = save_dir.join(subfolder).join(slot.name(coop));
+    let save_path: std::path::PathBuf = (&deploy_options).into();
 
+    match deploy_options {
+        DeployOptions::IntoTheRadius2(into_the_radius_2::ItrOptions { .. }) => {
             let mut file = archive.by_index(0).expect("Bad save zip file");
 
-            if slot_path.exists() {
+            if save_path.exists() {
                 // Backup the existing save file
-                let backup_path = slot_path.with_extension("bak");
-                std::fs::copy(&slot_path, &backup_path).expect("Failed to backup save file");
+                let backup_path = save_path.with_extension("bak");
+                std::fs::copy(&save_path, &backup_path).expect("Failed to backup save file");
             }
 
             let mut slot_file =
-                std::fs::File::create(&slot_path).expect("Failed to create save file");
+                std::fs::File::create(&save_path).expect("Failed to create save file");
             std::io::copy(&mut file, &mut slot_file).expect("Failed to write save file");
         }
         DeployOptions::Satisfactory {} => {
-            // No additional setup needed for Satisfactory
+            unimplemented!("Satisfactory deployment is not implemented yet");
         }
     };
 

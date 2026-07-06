@@ -3,12 +3,22 @@ use crate::prelude::*;
 use super::VersionProvider;
 
 #[component]
-pub fn VersionList(versions: WriteStore<Vec<api::Version>>, modify: ReadSignal<bool>) -> Element {
+pub fn VersionList(
+    versions: WriteStore<Vec<api::Version>>,
+    modify: ReadSignal<bool>,
+    deploy_version: Callback<api::Version>,
+) -> Element {
+    use super::CanAuto;
     let mut cols = 4;
+
+    let game = use_context::<Signal<api::Save>>().read().game;
 
     #[cfg(feature = "desktop")]
     {
         cols += 1;
+        if game.can_deploy() {
+            cols += 1;
+        }
     }
 
     if modify() {
@@ -37,6 +47,8 @@ pub fn VersionList(versions: WriteStore<Vec<api::Version>>, modify: ReadSignal<b
                     remove_version: move |_| {
                         remove_version(version.peek().id);
                     },
+                    can_deploy: cfg!(feature = "desktop") && game.can_deploy(),
+                    deploy_version,
                 }
             }
         }
@@ -48,8 +60,13 @@ pub fn VersionRow(
     version: ReadStore<api::Version>,
     modify: ReadSignal<bool>,
     remove_version: Callback<()>,
+    #[props(default)] can_deploy: bool,
+    deploy_version: Callback<api::Version>,
 ) -> Element {
     let toast_api = use_toast();
+
+    let save = use_context::<Signal<api::Save>>();
+
     let time_string = chrono::DateTime::from_timestamp(version().timestamp as i64, 0)
         .expect("Failed to convert date from unixepoch")
         .format("%Y-%m-%d %H:%M:%S")
@@ -73,14 +90,44 @@ pub fn VersionRow(
         }
     };
 
+    #[cfg(feature = "desktop")]
+    let reveal_button = {
+        use crate::desktop::ExplorerView;
+        use std::ops::Deref;
+
+        let path = use_memo(move || {
+            let version = version.read();
+            crate::desktop::get_version_path(&save.read().name, version.deref())
+        });
+        debug!("Version path: {:?}", path().display());
+        rsx! {
+            if path.read().exists() {
+                Button {
+                    size: ButtonSize::Icon,
+                    title: "Reveal in File Explorer",
+                    onclick: move |_| { path().select_file() },
+                    icons::FolderOpen {}
+                }
+            } else {
+                br {}
+            }
+        }
+    };
+
+    #[cfg(not(feature = "desktop"))]
+    let reveal_button = rsx! {};
+
     rsx! {
         div { class: "grid grid-cols-subgrid col-span-full max-w-full py-2 px-4 hover:bg-white/15 odd:bg-white/10 items-center",
             span { class: "overflow-ellipsis overflow-hidden", "{version().label}" }
             span { class: "text-center", "{version().version}" }
             span { class: "text-center", {time_string} }
             span { class: "overflow-ellipsis overflow-hidden text-center", "{version().by.username}" }
+            {reveal_button}
             DownloadButton { version }
-            InstallButton { version }
+            if can_deploy {
+                InstallButton { version, deploy_version }
+            }
             if modify() {
                 Button {
                     title: "Delete",
@@ -180,26 +227,25 @@ fn DownloadButton(version: ReadSignal<api::Version>) -> Element {
 
 #[cfg(not(feature = "desktop"))]
 #[component]
-fn InstallButton(version: ReadSignal<api::Version>) -> Element {
+fn InstallButton(
+    version: ReadSignal<api::Version>,
+    deploy_version: Callback<api::Version>,
+) -> Element {
     rsx! {}
 }
 
 #[cfg(feature = "desktop")]
 #[component]
-fn InstallButton(version: ReadSignal<api::Version>) -> Element {
-    let toast_api = use_toast();
-
+fn InstallButton(
+    version: ReadSignal<api::Version>,
+    deploy_version: Callback<api::Version>,
+) -> Element {
     rsx! {
         Button {
             title: "Deploy",
             size: ButtonSize::Icon,
             onclick: move |_| {
-                toast_api
-                    .error(
-                        "WIP".to_string(),
-                        ToastOptions::new()
-                            .description("Deploying is not yet implemented.".to_string()),
-                    );
+                deploy_version(version.peek().clone());
             },
             icons::HardDriveDownload {}
         }

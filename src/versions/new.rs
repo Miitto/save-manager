@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-trait CanAuto {
+pub trait CanAuto {
     fn can_fetch(&self) -> bool;
     fn can_deploy(&self) -> bool;
 }
@@ -23,7 +23,15 @@ pub fn NewVersionFileSelection() -> (Element, impl Fn() -> Result<dioxus::html::
     let can_fetch = use_memo(move || game().can_fetch());
     let mut auto = use_signal(|| can_fetch.cloned());
 
-    let mut path = use_signal(std::path::PathBuf::new);
+    let deps = use_store(|| crate::desktop::DeployOptions::from(game()));
+
+    let path = use_memo(move || {
+        let read = deps.read();
+        let deps = std::ops::Deref::deref(&read);
+        let path: std::path::PathBuf = deps.into();
+        path
+    });
+
     let mut error = use_signal(|| None::<String>);
 
     let set_file_data = move || {
@@ -40,9 +48,9 @@ pub fn NewVersionFileSelection() -> (Element, impl Fn() -> Result<dioxus::html::
             rsx! {
                 SavePathFinder {
                     save,
-                    path,
-                    set_path: move |p| path.set(p),
+                    deps,
                     error: move |e| error.set(Some(e)),
+                    allow_new: false,
                 }
             }
         } else {
@@ -111,4 +119,49 @@ pub fn NewVersionFileSelection() -> (Element, impl Fn() -> Result<dioxus::html::
         },
         set_file_data,
     )
+}
+
+#[cfg(feature = "desktop")]
+#[component]
+pub fn DeployVersionFileSelection(deps: Store<crate::desktop::DeployOptions>) -> Element {
+    let save = use_context::<Signal<api::Save>>();
+    let mut is_any = use_signal(|| true);
+
+    let mut error = use_signal(|| None::<String>);
+
+    rsx! {
+        div { class: "flex flex-row justify-between items-center gap-4",
+            h3 { class: "text-xl", "File Selection" }
+
+            div { class: "flex flex-row rounded",
+                Button {
+                    class: "rounded-r-none",
+                    variant: if is_any() { ButtonVariant::Primary } else { ButtonVariant::Secondary },
+                    onclick: move |e: MouseEvent| {
+                        e.prevent_default();
+                        is_any.set(true);
+                    },
+                    "Any"
+                }
+                Button {
+                    class: "rounded-l-none",
+                    variant: if !is_any() { ButtonVariant::Primary } else { ButtonVariant::Secondary },
+                    onclick: move |e: MouseEvent| {
+                        e.prevent_default();
+                        is_any.set(false);
+                    },
+                    "Existing"
+                }
+            }
+        }
+
+        Separator {}
+
+        crate::desktop::SavePathFinder {
+            save,
+            deps,
+            error: move |e| error.set(Some(e)),
+            allow_new: is_any,
+        }
+    }
 }

@@ -1,3 +1,5 @@
+#[cfg(feature = "desktop")]
+use crate::desktop::ExplorerView;
 use crate::prelude::*;
 use api::{NamedUserAccessStoreExt, SaveAccessStoreExt, UserAccessExt, UserPreviewStoreExt};
 
@@ -5,6 +7,7 @@ pub mod custom_types;
 mod list;
 mod new;
 pub use list::VersionList;
+pub use new::CanAuto;
 use new::*;
 
 type VersionProvider = LoaderStore<Vec<api::Version>>;
@@ -33,15 +36,46 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
     let mut delete_save_open = use_signal(|| false);
     let mut save_access_open = use_signal(|| false);
 
+    #[cfg(feature = "desktop")]
+    let mut deploy_version = use_signal(|| None::<api::Version>);
+
     let nav = use_navigator();
+
+    #[cfg(feature = "desktop")]
+    let deploy_ui = rsx! {
+        DeployVersionDialog { deploy_version }
+    };
+
+    #[cfg(not(feature = "desktop"))]
+    let deploy_ui = rsx! {};
+
+    #[cfg(feature = "desktop")]
+    let reveal_button = {
+        let path = use_memo(move || crate::desktop::get_save_path(&save.read().name));
+        rsx! {
+            if path.read().exists() {
+                Button {
+                    size: ButtonSize::Icon,
+                    title: "Open Save Cache Folder",
+                    onclick: move |_| { path().open_folder() },
+                    icons::FolderOpen {}
+                }
+            }
+        }
+    };
+    #[cfg(not(feature = "desktop"))]
+    let reveal_button = rsx! {};
 
     rsx! {
         document::Title { "{save().name}" }
 
         div { class: "flex flex-col max-w-screen",
             div { class: "flex flex-row justify-between items-center p-4 max-w-full",
-                h1 { class: "text-4xl font-bold overflow-ellipsis overflow-hidden",
-                    "{save().name}"
+                div { class: "flex flex-row gap-2 items-center",
+                    {reveal_button}
+                    h1 { class: "text-4xl font-bold overflow-ellipsis overflow-hidden",
+                        "{save().name}"
+                    }
                 }
                 div { class: "flex flex-row gap-2 items-center",
                     p { class: "whitespace-nowrap",
@@ -74,6 +108,12 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
             VersionList {
                 versions: versions.store().transpose().expect("Version list to have value"),
                 modify,
+                deploy_version: move |v| {
+                    #[cfg(feature = "desktop")]
+                    {
+                        deploy_version.set(Some(v));
+                    }
+                },
             }
 
             if modify {
@@ -111,6 +151,9 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
                     }
                 }
             }
+
+            {deploy_ui}
+
         }
     }
 }
@@ -215,6 +258,67 @@ fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Elem
     }
 }
 
+#[cfg(feature = "desktop")]
+#[component]
+fn DeployVersionDialog(deploy_version: Signal<Option<api::Version>>) -> Element {
+    let save = use_context::<Signal<api::Save>>();
+    let deps = use_store(|| crate::desktop::DeployOptions::from(save.read().game));
+
+    let open = use_memo(move || deploy_version.read().is_some());
+
+    let deploy = move || async move {
+        let save = save.read().cloned();
+        let version = deploy_version.read().cloned();
+        crate::desktop::deploy_version(&save, version.as_ref().unwrap(), deps.cloned())
+            .await
+            .expect("Failed to deploy version");
+        deploy_version.set(None);
+    };
+
+    rsx! {
+        Dialog {
+            open: open(),
+            on_open_change: move |o: bool| {
+                if !o {
+                    deploy_version.set(None)
+                }
+            },
+            class: "min-w-max",
+            h2 { class: "text-2xl font-bold", "Deploy Version" }
+
+            Separator {}
+
+            DeployVersionFileSelection { deps }
+
+            div { class: "flex flex-row justify-between",
+                Button {
+                    size: ButtonSize::Lg,
+                    variant: ButtonVariant::Secondary,
+                    onclick: move |e: MouseEvent| {
+                        e.prevent_default();
+                        deploy_version.set(None)
+                    },
+                    "Close"
+                }
+                Button {
+                    size: ButtonSize::Lg,
+                    onclick: move |e: MouseEvent| {
+                        e.prevent_default();
+                        deploy()
+                    },
+                    "Deploy"
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "desktop"))]
+#[component]
+fn DeployVersionDialog(open: Signal<bool>) -> Element {
+    rsx! {}
+}
+
 type SaveAccessProvider = LoaderStore<api::SaveAccess>;
 
 #[component]
@@ -281,7 +385,7 @@ fn SaveAccessDialog(
             open: save_access_open(),
             on_open_change: move |open| save_access_open.set(open),
             class: "min-w-max",
-            div { class: "flex flex-row justify-between gap-8 items-top min-w-max",
+            div { class: "flex flex-row justify-between gap-8 items-center min-w-max",
                 h2 { class: "text-2xl font-bold", "Manage Access" }
                 if USER().is_some_and(|u| u.id == owner()) {
                     div { class: "flex flex-col gap-2",
