@@ -1,17 +1,20 @@
 use crate::prelude::*;
 
 use super::VersionProvider;
+use crate::versions::SaveProvider;
+use crate::versions::VersionStoreExt;
+use api::UserPreviewStoreExt;
 
 #[component]
 pub fn VersionList(
-    versions: WriteStore<Vec<api::Version>>,
+    versions: WriteStore<Vec<crate::versions::Version>>,
     modify: ReadSignal<bool>,
-    deploy_version: Callback<api::Version>,
+    deploy_version: Callback<api::VersionId>,
 ) -> Element {
     use super::CanAuto;
     let mut cols = 4;
 
-    let game = use_context::<Signal<api::Save>>().read().game;
+    let game = use_context::<SaveProvider>().read().game;
 
     #[cfg(feature = "desktop")]
     {
@@ -44,8 +47,8 @@ pub fn VersionList(
                     key: "{version.read().id}",
                     version,
                     modify,
-                    remove_version: move |_| {
-                        remove_version(version.peek().id);
+                    remove_version: move |id| {
+                        remove_version(id);
                     },
                     can_deploy: cfg!(feature = "desktop") && game.can_deploy(),
                     deploy_version,
@@ -57,17 +60,15 @@ pub fn VersionList(
 
 #[component]
 pub fn VersionRow(
-    version: ReadStore<api::Version>,
+    version: WriteStore<crate::versions::Version>,
     modify: ReadSignal<bool>,
-    remove_version: Callback<()>,
+    remove_version: Callback<api::VersionId>,
     #[props(default)] can_deploy: bool,
-    deploy_version: Callback<api::Version>,
+    deploy_version: Callback<api::VersionId>,
 ) -> Element {
     let toast_api = use_toast();
 
-    let save = use_context::<Signal<api::Save>>();
-
-    let time_string = chrono::DateTime::from_timestamp(version().timestamp as i64, 0)
+    let time_string = chrono::DateTime::from_timestamp(version.read().timestamp as i64, 0)
         .expect("Failed to convert date from unixepoch")
         .format("%Y-%m-%d %H:%M:%S")
         .to_string();
@@ -77,9 +78,12 @@ pub fn VersionRow(
     let mut version_list = use_context::<VersionProvider>();
 
     let delete_version = move || {
-        remove_version.call(());
+        let id = version.peek().id;
+        let save_id = version.peek().save.peek().id;
+        version.peek().on_delete();
+        remove_version.call(id);
         async move {
-            if let Err(e) = api::delete_version(version().save_id, version().id).await {
+            if let Err(e) = api::delete_version(save_id, id).await {
                 error!("Failed to delete version: {e}");
                 toast_api.error(
                     "Failed to delete version".to_string(),
@@ -91,38 +95,34 @@ pub fn VersionRow(
     };
 
     #[cfg(feature = "desktop")]
-    let reveal_button = {
+    let reveal_button = use_memo(move || {
         use crate::desktop::ExplorerView;
-        use std::ops::Deref;
 
-        let path = use_memo(move || {
-            let version = version.read();
-            crate::desktop::get_version_path(&save.read().name, version.deref())
-        });
-        debug!("Version path: {:?}", path().display());
         rsx! {
-            if path.read().exists() {
+            if version.read().is_cached() {
                 Button {
                     size: ButtonSize::Icon,
                     title: "Reveal in File Explorer",
-                    onclick: move |_| { path().select_file() },
+                    onclick: move |_| { version.read().path().select_file() },
                     icons::FolderOpen {}
                 }
             } else {
                 br {}
             }
         }
-    };
+    });
 
     #[cfg(not(feature = "desktop"))]
     let reveal_button = rsx! {};
 
+    version.label();
+
     rsx! {
         div { class: "grid grid-cols-subgrid col-span-full max-w-full py-2 px-4 hover:bg-white/15 odd:bg-white/10 items-center",
-            span { class: "overflow-ellipsis overflow-hidden", "{version().label}" }
-            span { class: "text-center", "{version().version}" }
+            span { class: "overflow-ellipsis overflow-hidden", "{version.label()}" }
+            span { class: "text-center", "{version.version()}" }
             span { class: "text-center", {time_string} }
-            span { class: "overflow-ellipsis overflow-hidden text-center", "{version().by.username}" }
+            span { class: "overflow-ellipsis overflow-hidden text-center", "{version.by().username()}" }
             {reveal_button}
             DownloadButton { version }
             if can_deploy {
@@ -164,11 +164,11 @@ pub fn VersionRow(
 
 #[cfg(not(feature = "desktop"))]
 #[component]
-fn DownloadButton(version: ReadSignal<api::Version>) -> Element {
+fn DownloadButton(version: WriteStore<crate::versions::Version>) -> Element {
     rsx! {
         ButtonLink {
             size: ButtonSize::Icon,
-            to: format!("/api/save/{}/{}/download", version().save_id, version().id),
+            to: format!("/api/save/{}/{}/download", version.read().save.read().id, version().id),
             icons::Download {}
         }
     }
@@ -176,23 +176,23 @@ fn DownloadButton(version: ReadSignal<api::Version>) -> Element {
 
 #[cfg(feature = "desktop")]
 #[component]
-fn DownloadButton(version: ReadSignal<api::Version>) -> Element {
+fn DownloadButton(mut version: WriteStore<crate::versions::Version>) -> Element {
     use dioxus_primitives::toast::ToastOptions;
 
     let toast_api = use_toast();
-    let save = use_context::<Signal<api::Save>>();
+    let save = use_context::<SaveProvider>();
 
     rsx! {
         Button {
             title: "Download",
             size: ButtonSize::Icon,
             onclick: move |_| {
-                let version = version.peek().clone();
+                let v = version.peek().clone();
                 async move {
                     #[cfg(feature = "desktop")]
                     {
                         let name = save.peek().name.clone();
-                        match crate::desktop::download_version(&name, &version)
+                        match crate::desktop::download_version(&name, &v)
                             .await
                         {
                             Ok(path) => {
@@ -205,6 +205,7 @@ fn DownloadButton(version: ReadSignal<api::Version>) -> Element {
                                             )
                                             .duration(std::time::Duration::from_secs(10)),
                                     );
+                                version.write().check_cached();
                             }
                             Err(_) => {
                                 toast_api
@@ -228,8 +229,8 @@ fn DownloadButton(version: ReadSignal<api::Version>) -> Element {
 #[cfg(not(feature = "desktop"))]
 #[component]
 fn InstallButton(
-    version: ReadSignal<api::Version>,
-    deploy_version: Callback<api::Version>,
+    version: ReadStore<crate::versions::Version>,
+    deploy_version: Callback<api::VersionId>,
 ) -> Element {
     rsx! {}
 }
@@ -237,15 +238,15 @@ fn InstallButton(
 #[cfg(feature = "desktop")]
 #[component]
 fn InstallButton(
-    version: ReadSignal<api::Version>,
-    deploy_version: Callback<api::Version>,
+    version: ReadStore<crate::versions::Version>,
+    deploy_version: Callback<api::VersionId>,
 ) -> Element {
     rsx! {
         Button {
             title: "Deploy",
             size: ButtonSize::Icon,
             onclick: move |_| {
-                deploy_version(version.peek().clone());
+                deploy_version(version.id()());
             },
             icons::HardDriveDownload {}
         }

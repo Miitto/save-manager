@@ -108,44 +108,6 @@ fn SharePreview() -> Element {
 
 #[component]
 fn VersionPreview() -> Element {
-    let versions = use_loader_store(|| async move {
-        Ok::<_, ServerFnError>(vec![
-            api::Version {
-                id: 0,
-                save_id: 0,
-                version: 3,
-                label: "Modular Frames".to_string(),
-                timestamp: 1680000000,
-                by: api::UserPreview {
-                    id: 0,
-                    username: "John Doe".to_string(),
-                },
-            },
-            api::Version {
-                id: 0,
-                save_id: 0,
-                version: 2,
-                label: "Steel Plant".to_string(),
-                timestamp: 1680000000,
-                by: api::UserPreview {
-                    id: 1,
-                    username: "Steve".to_string(),
-                },
-            },
-            api::Version {
-                id: 0,
-                save_id: 0,
-                version: 1,
-                label: "Wire Factory".to_string(),
-                timestamp: 1680000000,
-                by: api::UserPreview {
-                    id: 0,
-                    username: "John Doe".to_string(),
-                },
-            },
-        ])
-    })?;
-
     let save = use_signal(|| api::Save {
         id: 0,
         name: "My Save".to_string(),
@@ -154,6 +116,54 @@ fn VersionPreview() -> Element {
         version_count: 3,
         owner: 0,
     });
+
+    let versions = use_mapped_loader_store(
+        || async move {
+            Ok::<_, ServerFnError>(vec![
+                api::Version {
+                    id: 0,
+                    save_id: 0,
+                    version: 3,
+                    label: "Modular Frames".to_string(),
+                    timestamp: 1680000000,
+                    by: api::UserPreview {
+                        id: 0,
+                        username: "John Doe".to_string(),
+                    },
+                },
+                api::Version {
+                    id: 0,
+                    save_id: 0,
+                    version: 2,
+                    label: "Steel Plant".to_string(),
+                    timestamp: 1680000000,
+                    by: api::UserPreview {
+                        id: 1,
+                        username: "Steve".to_string(),
+                    },
+                },
+                api::Version {
+                    id: 0,
+                    save_id: 0,
+                    version: 1,
+                    label: "Wire Factory".to_string(),
+                    timestamp: 1680000000,
+                    by: api::UserPreview {
+                        id: 0,
+                        username: "John Doe".to_string(),
+                    },
+                },
+            ])
+        },
+        move |v| {
+            v.into_iter()
+                .map(|v| {
+                    crate::versions::Version::new(dioxus::core::SuperInto::super_into(save), v)
+                })
+                .collect::<Vec<_>>()
+        },
+    )?;
+
     use_context_provider(|| save);
 
     use_context_provider(|| versions);
@@ -161,7 +171,7 @@ fn VersionPreview() -> Element {
     rsx! {
         div { class: "pointer-events-none select-none border rounded-xl border-border p-4",
             crate::versions::VersionList {
-                versions: versions.store().transpose().expect("Instant future did not resolve?"),
+                versions: versions.store().transpose().expect("Version list to have value"),
                 modify: true,
                 deploy_version: |_| {},
             }

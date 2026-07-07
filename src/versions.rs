@@ -10,18 +10,114 @@ pub use list::VersionList;
 pub use new::CanAuto;
 use new::*;
 
-type VersionProvider = LoaderStore<Vec<api::Version>>;
+#[derive(Debug, Clone, PartialEq, Store)]
+pub struct Version {
+    pub id: api::VersionId,
+    pub label: String,
+    pub save: ReadSignal<api::Save>,
+    pub version: i32,
+    pub timestamp: i32,
+    pub by: api::UserPreview,
+    #[cfg(feature = "desktop")]
+    pub cached_at: i32,
+}
+
+impl Version {
+    pub fn new(save: ReadSignal<api::Save>, version: api::Version) -> Self {
+        let mut v = Self {
+            id: version.id,
+            label: version.label,
+            save,
+            version: version.version,
+            timestamp: version.timestamp,
+            by: version.by,
+            #[cfg(feature = "desktop")]
+            cached_at: 0,
+        };
+        #[cfg(feature = "desktop")]
+        {
+            v.check_cached();
+        }
+        v
+    }
+
+    pub fn is_cached(&self) -> bool {
+        #[cfg(feature = "desktop")]
+        {
+            self.cached_at > self.timestamp && self.path().exists()
+        }
+        #[cfg(not(feature = "desktop"))]
+        {
+            false
+        }
+    }
+
+    #[cfg(feature = "desktop")]
+    pub fn path(&self) -> std::path::PathBuf {
+        let save = self.save.read();
+        let name = &save.name;
+        crate::desktop::get_version_path(name, self)
+    }
+
+    #[cfg(feature = "desktop")]
+    pub fn check_cached(&mut self) {
+        let path = self.path();
+        self.cached_at = if path.exists() {
+            match path.metadata() {
+                Ok(metadata) => metadata
+                    .modified()
+                    .map(|m| {
+                        m.duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i32
+                    })
+                    .unwrap_or(0),
+                Err(_) => 0,
+            }
+        } else {
+            0
+        }
+    }
+
+    pub fn on_delete(&self) {
+        #[cfg(feature = "desktop")]
+        {
+            let path = self.path();
+            if path.exists()
+                && let Err(e) = std::fs::remove_file(&path)
+            {
+                error!("Failed to remove cached version file {:?}: {e}", path);
+            }
+        }
+    }
+}
+
+type SaveProvider = LoaderStore<api::Save>;
+type VersionProvider = LoaderStore<Vec<crate::versions::Version>>;
 
 #[component]
 pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
-    let save_res = use_server_future(move || api::get_save_details(id()))?;
-    let save_r = save_res().ok_or(anyhow::anyhow!("Failed to load save details"))??;
-    let save = use_signal(|| save_r);
-    let versions = use_loader_store(move || api::get_save_versions(id()))?;
+    let save = use_loader_store(move || api::get_save_details(id()))?;
+    let mut versions = use_mapped_loader_store(
+        move || api::get_save_versions(id()),
+        move |v| {
+            v.into_iter()
+                .map(|v| {
+                    use dioxus::core::SuperInto;
+                    crate::versions::Version::new(save.super_into(), v)
+                })
+                .collect::<Vec<_>>()
+        },
+    )?;
+
+    let write_versions = versions
+        .store()
+        .transpose()
+        .ok_or(anyhow::anyhow!("Version list to have value"))?;
 
     use_context_provider::<VersionProvider>(|| versions);
 
-    use_context_provider(|| save);
+    use_context_provider::<SaveProvider>(|| save);
 
     let modify = use_server_future(move || {
         _ = USER();
@@ -37,7 +133,7 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
     let mut save_access_open = use_signal(|| false);
 
     #[cfg(feature = "desktop")]
-    let mut deploy_version = use_signal(|| None::<api::Version>);
+    let mut deploy_version = use_signal(|| None);
 
     let nav = use_navigator();
 
@@ -106,12 +202,18 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
             Separator {}
 
             VersionList {
-                versions: versions.store().transpose().expect("Version list to have value"),
+                versions: write_versions,
                 modify,
-                deploy_version: move |v| {
+                deploy_version: move |v: api::VersionId| {
                     #[cfg(feature = "desktop")]
                     {
-                        deploy_version.set(Some(v));
+                        let v = if let Some(v) = write_versions.iter().find(|vs| vs.id()() == v) {
+                            v
+                        } else {
+                            error!("Version with id {} not found", v);
+                            return;
+                        };
+                        deploy_version.set(Some(v.into()));
                     }
                 },
             }
@@ -124,7 +226,14 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
                     icons::CirclePlus {}
                 }
 
-                NewVersionDialog { id, new_version_open }
+                NewVersionDialog {
+                    id,
+                    new_version_open,
+                    on_new_version: move |v| {
+                        use dioxus::core::SuperInto;
+                        versions.write().insert(0, crate::versions::Version::new(save.super_into(), v));
+                    },
+                }
             }
 
             SaveAccessDialog { id, save_access_open, owner: save().owner }
@@ -159,12 +268,15 @@ pub fn SaveDetails(id: ReadSignal<i32>) -> Element {
 }
 
 #[component]
-fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Element {
+fn NewVersionDialog(
+    id: ReadSignal<i32>,
+    new_version_open: Signal<bool>,
+    on_new_version: Callback<api::Version>,
+) -> Element {
     let mut label = use_signal(String::new);
 
     let mut error = use_signal(|| None::<String>);
 
-    let mut version_list = use_context::<VersionProvider>();
     let (file_select, get_file_data) = NewVersionFileSelection();
     let make_data = move |file: dioxus::html::FileData| {
         let data = custom_types::Data {
@@ -200,9 +312,9 @@ fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Elem
 
             match api::create_version(id(), multipart).await {
                 Ok(v) => {
-                    version_list.write().insert(0, v);
                     new_version_open.set(false);
                     label.write().clear();
+                    on_new_version.call(v);
                 }
                 Err(e) => {
                     error!("Failed to create version: {e}");
@@ -260,18 +372,24 @@ fn NewVersionDialog(id: ReadSignal<i32>, new_version_open: Signal<bool>) -> Elem
 
 #[cfg(feature = "desktop")]
 #[component]
-fn DeployVersionDialog(deploy_version: Signal<Option<api::Version>>) -> Element {
-    let save = use_context::<Signal<api::Save>>();
+fn DeployVersionDialog(
+    deploy_version: Signal<Option<WriteStore<crate::versions::Version>>>,
+) -> Element {
+    let save = use_context::<SaveProvider>();
     let deps = use_store(|| crate::desktop::DeployOptions::from(save.read().game));
 
     let open = use_memo(move || deploy_version.read().is_some());
 
     let deploy = move || async move {
         let save = save.read().cloned();
-        let version = deploy_version.read().cloned();
-        crate::desktop::deploy_version(&save, version.as_ref().unwrap(), deps.cloned())
-            .await
-            .expect("Failed to deploy version");
+        let mut store = deploy_version.read().unwrap();
+        {
+            let version = store.read().cloned();
+            crate::desktop::deploy_version(&save, &version, deps.cloned())
+                .await
+                .expect("Failed to deploy version");
+        }
+        store.write().check_cached();
         deploy_version.set(None);
     };
 

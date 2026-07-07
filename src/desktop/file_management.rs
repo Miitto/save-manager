@@ -6,15 +6,16 @@ pub fn get_save_path(save_name: &str) -> std::path::PathBuf {
     cache_dir.join(save_name)
 }
 
-pub fn get_version_path(save_name: &str, version: &api::Version) -> std::path::PathBuf {
+pub fn get_version_path(save_name: &str, version: &crate::versions::Version) -> std::path::PathBuf {
     get_save_path(save_name).join(format!("{}.zip", version.version))
 }
 
 pub async fn download_version(
     save_name: &str,
-    version: &api::Version,
+    version: &crate::versions::Version,
 ) -> Result<std::path::PathBuf, ()> {
-    let mut stream = match api::download_version(version.save_id, version.id).await {
+    let id = version.save.read().id;
+    let mut stream = match api::download_version(id, version.id).await {
         Ok(stream) => stream,
         Err(e) => {
             error!("Failed to download version: {e}");
@@ -80,7 +81,7 @@ impl From<api::Game> for DeployOptions {
 
 pub async fn deploy_version(
     save: &api::Save,
-    version: &api::Version,
+    version: &crate::versions::Version,
     deploy_options: DeployOptions,
 ) -> Result<(), ()> {
     if !deploy_options.matches_game(save.game) {

@@ -153,6 +153,139 @@ where
     }
 }
 
+#[track_caller]
+#[allow(clippy::result_large_err)]
+pub fn use_mapped_loader_store<AsyncF, Inter, T, E>(
+    mut future: impl FnMut() -> AsyncF + 'static,
+    map: impl Fn(Inter) -> T + Clone + 'static,
+) -> Result<LoaderStore<T>, Loading>
+where
+    AsyncF: Future<Output = Result<Inter, E>> + 'static,
+    Inter: 'static + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
+    E: Into<CapturedError> + 'static,
+{
+    let serialize_context = use_hook(dioxus::fullstack::serialize_context);
+
+    // We always create a storage entry, even if the data isn't ready yet to make it possible to deserialize pending server futures on the client
+    #[allow(unused)]
+    let storage_entry: dioxus::fullstack::SerializeContextEntry<Result<Inter, CapturedError>> =
+        use_hook(|| serialize_context.create_entry());
+
+    #[cfg(feature = "server")]
+    let caller = std::panic::Location::caller();
+
+    // If this is the first run and we are on the web client, the data might be cached
+    #[cfg(feature = "web")]
+    let initial_web_result =
+        use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(Some(storage_entry.get()))));
+
+    let mut error = use_signal(|| None as Option<CapturedError>);
+    let mut value = use_store(|| None as Option<T>);
+    let mut loader_state = use_signal(|| LoaderState::Pending);
+
+    let resource = use_resource(move || {
+        #[cfg(feature = "server")]
+        let storage_entry = storage_entry.clone();
+
+        let user_fut = future();
+
+        #[cfg(feature = "web")]
+        let initial_web_result = initial_web_result.clone();
+
+        let map = map.clone();
+
+        #[allow(clippy::let_and_return)]
+        async move {
+            // If this is the first run and we are on the web client, the data might be cached
+            #[cfg(feature = "web")]
+            match initial_web_result.take() {
+                // The data was deserialized successfully from the server
+                Some(Ok(o)) => {
+                    match o {
+                        Ok(v) => {
+                            value.set(Some(v));
+                            loader_state.set(LoaderState::Ready);
+                        }
+                        Err(e) => {
+                            error.set(Some(e));
+                            loader_state.set(LoaderState::Failed);
+                        }
+                    };
+                    return;
+                }
+
+                // The data is still pending from the server. Don't try to resolve it on the client
+                Some(Err(dioxus::fullstack::TakeDataError::DataPending)) => {
+                    std::future::pending::<()>().await
+                }
+
+                // The data was not available on the server, rerun the future
+                Some(Err(_)) => {}
+
+                // This isn't the first run, so we don't need do anything
+                None => {}
+            }
+
+            // Otherwise just run the future itself
+            let out = user_fut.await;
+
+            // Remap the error to the captured error type so it's cheap to clone and pass out, just
+            // slightly more cumbersome to access the inner error.
+            let out = out.map_err(|e| {
+                let anyhow_err: CapturedError = e.into();
+                anyhow_err
+            });
+
+            // If this is the first run and we are on the server, cache the data in the slot we reserved for it
+            #[cfg(feature = "server")]
+            storage_entry.insert(&out, caller);
+
+            match out {
+                Ok(v) => {
+                    value.set(Some(map(v)));
+                    loader_state.set(LoaderState::Ready);
+                }
+                Err(e) => {
+                    error.set(Some(e));
+                    loader_state.set(LoaderState::Failed);
+                }
+            };
+        }
+    });
+
+    // On the first run, force this task to be polled right away in case its value is ready
+    use_hook(|| {
+        let _ = resource.task().poll_now();
+    });
+
+    let read_value: ReadStore<T> = use_hook(|| {
+        value
+            .selector()
+            .map(|v: &Option<T>| v.as_ref().unwrap(), |v| v.as_mut().unwrap())
+    })
+    .map_writer(std::convert::Into::into)
+    .into();
+
+    let handle = LoaderHandle {
+        resource,
+        error,
+        state: loader_state,
+        _marker: std::marker::PhantomData,
+    };
+
+    match &*loader_state.read_unchecked() {
+        LoaderState::Pending => Err(Loading::Pending(handle)),
+        LoaderState::Failed => Err(Loading::Failed(handle)),
+        LoaderState::Ready => Ok(LoaderStore {
+            real_value: value,
+            read_value,
+            error,
+            state: loader_state,
+            handle,
+        }),
+    }
+}
+
 impl<T: 'static> LoaderStore<T> {
     /// Get the error that occurred during loading, if any.
     ///
@@ -315,10 +448,10 @@ impl<T> LoaderStore<T> {
 
 #[derive(PartialEq)]
 pub struct LoaderHandle<M = ()> {
-    resource: Resource<()>,
-    error: Signal<Option<CapturedError>>,
-    state: Signal<LoaderState>,
-    _marker: std::marker::PhantomData<M>,
+    pub(crate) resource: Resource<()>,
+    pub(crate) error: Signal<Option<CapturedError>>,
+    pub(crate) state: Signal<LoaderState>,
+    pub(crate) _marker: std::marker::PhantomData<M>,
 }
 
 impl LoaderHandle {

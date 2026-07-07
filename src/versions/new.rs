@@ -1,5 +1,7 @@
 use crate::prelude::*;
 
+use crate::versions::SaveProvider;
+
 pub trait CanAuto {
     fn can_fetch(&self) -> bool;
     fn can_deploy(&self) -> bool;
@@ -18,7 +20,7 @@ impl CanAuto for api::Game {
 #[cfg(feature = "desktop")]
 #[component]
 pub fn NewVersionFileSelection() -> (Element, impl Fn() -> Result<dioxus::html::FileData, String>) {
-    let save = use_context::<Signal<api::Save>>();
+    let save = use_context::<SaveProvider>();
     let game = use_memo(move || save.read().game);
     let can_fetch = use_memo(move || game().can_fetch());
     let mut auto = use_signal(|| can_fetch.cloned());
@@ -124,36 +126,12 @@ pub fn NewVersionFileSelection() -> (Element, impl Fn() -> Result<dioxus::html::
 #[cfg(feature = "desktop")]
 #[component]
 pub fn DeployVersionFileSelection(deps: Store<crate::desktop::DeployOptions>) -> Element {
-    let save = use_context::<Signal<api::Save>>();
-    let mut is_any = use_signal(|| true);
+    let save = use_context::<SaveProvider>();
 
     let mut error = use_signal(|| None::<String>);
 
     rsx! {
-        div { class: "flex flex-row justify-between items-center gap-4",
-            h3 { class: "text-xl", "File Selection" }
-
-            div { class: "flex flex-row rounded",
-                Button {
-                    class: "rounded-r-none",
-                    variant: if is_any() { ButtonVariant::Primary } else { ButtonVariant::Secondary },
-                    onclick: move |e: MouseEvent| {
-                        e.prevent_default();
-                        is_any.set(true);
-                    },
-                    "Any"
-                }
-                Button {
-                    class: "rounded-l-none",
-                    variant: if !is_any() { ButtonVariant::Primary } else { ButtonVariant::Secondary },
-                    onclick: move |e: MouseEvent| {
-                        e.prevent_default();
-                        is_any.set(false);
-                    },
-                    "Existing"
-                }
-            }
-        }
+        h3 { class: "text-xl", "File Selection" }
 
         Separator {}
 
@@ -161,7 +139,7 @@ pub fn DeployVersionFileSelection(deps: Store<crate::desktop::DeployOptions>) ->
             save,
             deps,
             error: move |e| error.set(Some(e)),
-            allow_new: is_any,
+            allow_new: true,
         }
     }
 }

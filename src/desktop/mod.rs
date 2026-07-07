@@ -11,7 +11,6 @@ pub use save_ui::*;
 pub mod dirs;
 
 pub trait ExplorerView {
-    #[allow(dead_code)]
     fn open_folder(&self);
     fn select_file(&self);
 }
